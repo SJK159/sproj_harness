@@ -31,17 +31,22 @@ Done when: tests cover valid token, wrong case, expired, reused, tampered, and n
 - `context.py`: runtime context with `student_id` and `role`.
 - Read tools wrapping M1 functions; student_id comes from runtime context.
 - `skills/force-enrollment/SKILL.md`: short hand-written rules. Mark it clearly as a placeholder, not official LUMS policy.
+  - YAML frontmatter with `name` (`force-enrollment`) and `description`; deepagents' `SkillsMiddleware` needs both to list the skill.
+  - Each rule gets a label such as `FE-1 (placeholder v0.1)`. The agent must cite the label of every rule it applies. This keeps FR-03 / NFR-07 (cite the policy section and version) alive without RAG.
 - `seed/agent_rules.md`: standing rules (never claim enrollment without tool success, always show which rule was applied, etc).
 - System prompt for the orchestrator.
 
-Done when: asking "can i get force enrolled in CS412?" as S1 produces a `write_todos` plan in the trace, reads the skill, and answers using the read tools. Explain in `docs/decisions.md` why skills are loaded on demand instead of putting rules in the system prompt.
+Done when: asking "can i get force enrolled in CS412?" as S1 produces a `write_todos` plan in the trace, reads the skill, and answers using the read tools, citing at least one rule label (e.g. `FE-1 (placeholder v0.1)`). Explain in `docs/decisions.md` why skills are loaded on demand instead of putting rules in the system prompt.
 
 ## M4. Sub-agent: eligibility-checker
 
 - Define `eligibility-checker` in `subagents.py` with only the read tools and a prompt that returns a compact verdict (eligible yes/no, failing check, reason).
+- The verdict is structured output: set `response_format` on the sub-agent spec to a schema (e.g. a Pydantic model with `eligible`, `failing_check`, `reason`). deepagents returns it to the main agent as the `task` tool result.
+- Disable the auto-added `general-purpose` sub-agent unless this milestone shows a reason to keep it (CLAUDE.md invariant 9).
+- Add a check (test or script) that lists every tool each sub-agent and the main agent can see. It must show no write tool on any sub-agent.
 - Remove the read tools from the main agent if the sub-agent covers them, and note the trade-off in decisions.md.
 
-Done when: the trace shows a `task` call to the sub-agent, and the main agent's context contains only the verdict, not raw tool output. Test with S1, S2, S3 and CS360.
+Done when: the trace shows a `task` call to the sub-agent, and the main agent's context contains only the verdict, not raw tool output. Test with S1, S2, S3 and CS360. The tool-listing check passes.
 
 ## M5. Human in the loop + durable state
 

@@ -35,6 +35,8 @@ Do not build these even if they seem helpful: RAG or a vector store, real Zambee
 5. A student only ever sees their own data and cases. Tools read student_id from the runtime context, not from arguments the LLM fills in.
 6. One LangGraph thread per case: `thread_id = case_id`. The instructor's resume targets that thread.
 7. No secrets, real student data, or LUMS credentials in code, logs or commits. Synthetic data only.
+8. `submit_case` and `execute_enrollment` are gated with `allowed_decisions: ["approve", "reject"]` only. Never allow `edit` (it lets the resumer rewrite tool args such as case_id) or `respond` (it skips the tool and fakes a success result).
+9. Write tools (`submit_case`, `execute_enrollment`, `notify_student`) exist only on the main agent. No sub-agent may get them, including the `general-purpose` sub-agent deepagents adds automatically. Disable `general-purpose` unless M4 shows a reason to keep it.
 
 ## Case states
 
@@ -44,9 +46,9 @@ Student declines at confirmation -> `CANCELLED`. Ineligible requests never creat
 ## Stack
 
 - Python 3.11+, `uv` for env and deps, `pytest` for tests.
-- `deepagents`, `langgraph`, `langchain`.
+- `deepagents`, `langgraph`, `langchain`. Versions checked on 2026-10-17: deepagents 0.7.28, langgraph 1.2.15, langchain 1.4.6, langgraph-checkpoint-sqlite 3.1.2. `uv.lock` pins what is actually installed.
 - Checkpointer: SQLite (`langgraph-checkpoint-sqlite`) in `data/checkpoints.db`, so paused runs survive restarts. `MemorySaver` is allowed only in unit tests.
-- Long-term store: a persistent LangGraph store (SQLite store if the installed langgraph provides one, otherwise Postgres). `InMemoryStore` only in unit tests.
+- Long-term store: `langgraph.store.sqlite.SqliteStore` (ships with `langgraph-checkpoint-sqlite`). `InMemoryStore` only in unit tests.
 - Mock Zambeel, cases, approvals and audit events: one SQLite file `data/harness.db`.
 - Model: read from env var `HARNESS_MODEL` (a `provider:model` string). Never hardcode a model.
 - Tracing: LangSmith via env vars, used to show todos, sub-agent calls and interrupts.
@@ -62,6 +64,7 @@ CLAUDE.md
 docs/build-plan.md          milestones, one at a time
 docs/decisions.md           design decision log
 docs/reference/             BRD, technical proposal, deep agents primer (PDF)
+docs/reference/web/         snapshot of LangChain deepagents / LangGraph docs
 seed/agent_rules.md         standing rules, loaded into the agent's /memories/AGENTS.md
 skills/force-enrollment/SKILL.md
 src/harness/
@@ -81,6 +84,12 @@ tests/
 ```
 
 Do not name any file `AGENTS.md` in this repo. Claude Code may read it as instructions for itself. The agent's rules live in `seed/agent_rules.md` and are loaded into the agent's virtual `/memories/AGENTS.md` at startup.
+
+Backend routing (`CompositeBackend`). Skills and memory files are read through the backend, not straight from disk:
+- default: `StateBackend` (per-thread scratch files).
+- `/skills/` -> `FilesystemBackend` pointing at the repo `skills/` folder.
+- `/memories/` -> `StoreBackend` on the `SqliteStore`, with the namespace built from `rt.context.student_id`, so each student's memories are separate.
+- At startup, `seed/agent_rules.md` is copied into the store as `/memories/AGENTS.md` (in the current student's namespace, since `/memories/` is namespaced per student).
 
 ## Mock data
 
