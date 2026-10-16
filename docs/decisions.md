@@ -76,6 +76,26 @@ Why: a bare `create_deep_agent` in 0.7.28 gives `ls, read_file, write_file, edit
 Why: the machine's default Python is 3.14, newer than some LangChain dependencies are tested on. 3.12 is supported by every pinned package; uv downloads it per project.
 Alternative: 3.14. Not chosen until the dependency stack lists it as supported.
 
+## 2026-10-17 (M1)
+
+**Seats are computed (`capacity - count(ENROLLED)`), never stored.**
+Why: a stored counter can drift from the enrollments table (e.g. a failed write between two updates). Computing it keeps one source of truth.
+Alternative: a `seats_available` column decremented on enroll.
+
+**Idempotency comes from a UNIQUE constraint on `enrollments.idempotency_key`, not read-then-insert.**
+Why: the database rejects the second insert even if two retries race, so "never enrolls twice" (invariant 3) does not depend on timing. Same key with a different student/offering raises `IdempotencyConflict` instead of returning someone else's enrollment.
+Alternative: check for the key first, then insert. Has a race window.
+
+**All tables, including cases / approvals / audit_events, are defined in M1.**
+Why: one schema file for `data/harness.db`; M2 and M5 add code, not migrations. `audit_events` has triggers that abort any UPDATE or DELETE, so the log is append-only at the database level (FR-10).
+
+**Unknown student or course raises; it never returns pass or fail.**
+Why: UC-03 says an incomplete record means "eligibility cannot be determined" and must not default to a pass. Raising forces the caller (later the eligibility sub-agent) to report that explicitly.
+
+**`enroll` does not re-check eligibility or seats.**
+Why: checks run before the case is created; the write is gated by the approval token in M5. Re-checking seats inside `enroll` would block exactly the case force enrollment exists for (a full section), if the team decides instructors may override capacity.
+Open: CLAUDE.md treats a full course (CS360) as ineligible. Real force enrollment is usually requested *because* a section is full. Confirm the intended rule with the department / supervisor.
+
 ## Open
 
 - deepagents package vs plain LangGraph for the final system: take evidence from M5 to M7 to the supervisor.
