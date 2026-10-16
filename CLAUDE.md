@@ -20,7 +20,7 @@ Force enrollment, end to end:
 9. On approval, `execute_enrollment` verifies the token and enrolls the student in mock Zambeel.
 10. Agent notifies the student and writes a note to long-term memory (`/memories/students/<id>.md`).
 
-Deep agent concepts this build must exercise: planning (`write_todos`), sub-agents (`task`), human-in-the-loop (`interrupt_on`), short-term memory (checkpointer), long-term memory (`CompositeBackend` + persistent store), skills.
+Deep agent concepts this build must exercise: planning (`write_todos`, opt-in in deepagents 0.7.28 via `TodoListMiddleware`), sub-agents (`task`), human-in-the-loop (`interrupt_on`), short-term memory (checkpointer), long-term memory (`CompositeBackend` + persistent store), skills.
 
 ## Out of scope right now
 
@@ -50,7 +50,7 @@ Student declines at confirmation -> `CANCELLED`. Ineligible requests never creat
 - Checkpointer: SQLite (`langgraph-checkpoint-sqlite`) in `data/checkpoints.db`, so paused runs survive restarts. `MemorySaver` is allowed only in unit tests.
 - Long-term store: `langgraph.store.sqlite.SqliteStore` (ships with `langgraph-checkpoint-sqlite`). `InMemoryStore` only in unit tests.
 - Mock Zambeel, cases, approvals and audit events: one SQLite file `data/harness.db`.
-- Model: read from env var `HARNESS_MODEL` (a `provider:model` string). Never hardcode a model.
+- Model: read from env var `HARNESS_MODEL` (a `provider:model` string). Never hardcode a model. Dev model is `databricks:databricks-gpt-oss-120b` (Databricks Free Edition, called through `ChatOpenAI` on `<host>/serving-endpoints`); `harness.config.get_chat_model()` builds it.
 - Tracing: LangSmith via env vars, used to show todos, sub-agent calls and interrupts.
 
 ## API caution

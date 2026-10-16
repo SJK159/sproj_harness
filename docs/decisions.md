@@ -59,6 +59,23 @@ Alternative: drop citations until RAG exists. Rejected: the acceptance criteria 
 Why: the main agent gets a fixed schema (eligible, failing_check, reason) instead of free text, so the "only the verdict comes back" claim in M4 is checkable and the main agent cannot misread it.
 Alternative: free-text verdict parsed by the prompt. Less reliable, harder to test.
 
+**Dev model: Databricks Free Edition, endpoint `databricks-gpt-oss-120b`.**
+Why: no-cost access to an open-weights reasoning model with working tool calling. Checked on 2026-10-17: plain call, tool call, and a full tool round trip (model -> tool -> model) all succeed. `databricks-gpt-oss-20b` is the fallback.
+Limits: Free Edition is under a fair-usage policy whose quotas are not published. Going over shuts the workspace's compute down for the rest of the day (in extreme cases the month). Non-commercial use only. So automated tests stay offline (no LLM in M1/M2, fake models where possible later) and live runs are kept to demo scripts. A paid model is possible for M7 and the supervisor demo; switching is an `HARNESS_MODEL` change.
+Alternative: a paid provider (Anthropic / OpenAI / Google) from the start. Costs money per run during development.
+
+**Call Databricks through `ChatOpenAI` on `<host>/serving-endpoints`, Chat Completions only.**
+Why: Databricks Model Serving exposes an OpenAI-compatible Chat Completions API. `langchain-openai` is a small client library already needed, and it handled gpt-oss's `[reasoning, text]` content blocks and tool calls in our tests. `use_responses_api=False` because Databricks does not serve the Responses API. `config.get_chat_model()` maps `HARNESS_MODEL=databricks:<endpoint>` to it; the installed `init_chat_model` has no `databricks` provider, so this mapping is needed either way. Nothing is sent to OpenAI.
+Alternative: `databricks-langchain`'s `ChatDatabricks`. Officially supported, but pulls in mlflow, unitycatalog-langchain, databricks-mcp and databricks-sdk, and resolves credentials through the SDK's own config lookup. Not tested.
+Note: `langchain-anthropic` and `langchain-google-genai` were dropped from our deps but stay installed, because deepagents itself requires them.
+
+**`write_todos` is opt-in in deepagents 0.7.28: add `TodoListMiddleware` explicitly.**
+Why: a bare `create_deep_agent` in 0.7.28 gives `ls, read_file, write_file, edit_file, delete, glob, grep, execute, task`, with no planner (checked by listing the compiled graph's tools, and in the docs' "Task planning: opt-in" section). The build plan relies on `write_todos`, so M3 passes `middleware=[TodoListMiddleware()]` from `langchain.agents.middleware`.
+
+**Python pinned to 3.12 (`.python-version`), `requires-python >= 3.11`.**
+Why: the machine's default Python is 3.14, newer than some LangChain dependencies are tested on. 3.12 is supported by every pinned package; uv downloads it per project.
+Alternative: 3.14. Not chosen until the dependency stack lists it as supported.
+
 ## Open
 
 - deepagents package vs plain LangGraph for the final system: take evidence from M5 to M7 to the supervisor.

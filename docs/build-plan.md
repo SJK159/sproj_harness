@@ -35,6 +35,7 @@ Done when: tests cover valid token, wrong case, expired, reused, tampered, and n
   - Each rule gets a label such as `FE-1 (placeholder v0.1)`. The agent must cite the label of every rule it applies. This keeps FR-03 / NFR-07 (cite the policy section and version) alive without RAG.
 - `seed/agent_rules.md`: standing rules (never claim enrollment without tool success, always show which rule was applied, etc).
 - System prompt for the orchestrator.
+- Add `TodoListMiddleware()` to `middleware=`: in deepagents 0.7.28 `write_todos` is not in the default stack.
 
 Done when: asking "can i get force enrolled in CS412?" as S1 produces a `write_todos` plan in the trace, reads the skill, and answers using the read tools, citing at least one rule label (e.g. `FE-1 (placeholder v0.1)`). Explain in `docs/decisions.md` why skills are loaded on demand instead of putting rules in the system prompt.
 
