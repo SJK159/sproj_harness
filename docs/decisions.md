@@ -114,8 +114,35 @@ Alternative: trust the approval-time check. Would over-fill the cap.
 **Placeholder rule numbers in `policy.py`: credit cap 20, probation below CGPA 2.0, prerequisites must be completed.**
 Why: they make every rule testable now. They are not LUMS policy and must be labelled as placeholders in the skill file (M3).
 
+## 2026-10-17 (M2: approvals and audit)
+
+**Approval token = `v1.<payload>.<sig>`, HMAC-SHA256 over `"v1." + payload`, verified in a fixed order.**
+Why: one secret, standard library only, readable by the team. Payload holds case_id, instructor_id, a random nonce and expiry. Order: format, signature, bound to this case, expiry, approval row exists, atomic consume. A token with an edited case_id fails at the signature before anything else is read. Signatures are compared as base64url text with `hmac.compare_digest`, so changing base64 padding bits cannot produce a second valid spelling of the same MAC.
+Alternative: JWT library. Extra dependency and algorithm-choice pitfalls (`alg: none`) for no gain here.
+
+**Single use enforced by a conditional UPDATE (`... WHERE consumed_at IS NULL`, exactly one row changed).**
+Why: the database decides, so two concurrent executions cannot both use one token. Checked with two threads racing on separate connections: one succeeds, one gets `TokenReused` (30 of 30 runs).
+Alternative: read `consumed_at`, then write. Race window between the two.
+
+**The token is stored in `approvals.token`; `execute_enrollment` will read it by case_id.**
+Why: the build plan has execute verify "from the approvals table", so the LLM never sees or passes a token. Trade-off: a bearer token sits in the mock DB. Production should store only a hash and deliver the token over a separate channel.
+
+**Token lifetime 24 hours (`TOKEN_TTL`).**
+Why: execution runs right after the instructor's resume; 24 h allows a failed resume to be retried the same day. Tests inject `now` instead of sleeping.
+
+**Fail closed: no `APPROVAL_SECRET` (or shorter than 32 characters), no minting and no verifying.**
+Why: an empty or guessable key would make every signature forgeable.
+
+**Refusals are audited by the function that refuses.**
+Why: `record_decision` writes `APPROVAL_REFUSED` (non-owner, or case not awaiting approval; scenario A3) and `verify_and_consume` writes `TOKEN_REFUSED` with a reason code (scenario A4) or `TOKEN_CONSUMED`. A caller cannot forget to log a refusal.
+
+**`cases.transition()` is the only code path that changes a case's state.**
+Why: it checks the move against the CLAUDE.md state machine (so REJECTED can never reach EXECUTING), updates the case conditionally on the state it just read, and writes the audit row in the same transaction (invariant 4). Neither `transition` nor `audit.write_event` commits; the caller's transaction holds the change and its audit row together.
+Alternative: each tool updates `cases.state` directly. Every tool would have to re-implement the checks.
+
 ## Open
 
 - deepagents package vs plain LangGraph for the final system: take evidence from M5 to M7 to the supervisor.
 - Whether the LangGraph checkpointer can replace the `WORKFLOW_CASE` table. Current answer: no, checkpoints are opaque and not queryable for status (UC-02) or RBAC, so the cases table stays the source of truth.
 - Should `enroll` re-check credits and clashes at execution, not only the FE cap? Scenario A8: if both of S1's parallel cases were approved, S1 would reach 21 credits (cap 20).
+- "Case flagged for review" (scenario A4) is not designed yet: decide in M5 whether a refused token moves the case to FAILED, sets a flag column, or both.

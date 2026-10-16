@@ -23,6 +23,7 @@ Done when: eligibility cases E01-E14 in `docs/test-scenarios.md` pass, `enroll` 
 - `approvals.py`: `mint_token(case_id, instructor_id)` (HMAC with `APPROVAL_SECRET`, expiry), `verify_and_consume(token, case_id)` (signature, expiry, bound to case, single use).
 - Instructor must own the course to approve.
 - `audit.py`: one function that writes an audit_events row.
+- `cases.py`: the case state machine. `transition()` checks each move against CLAUDE.md's states, updates the case and writes its audit row in one transaction. Added in M2 because recording a decision already moves a case.
 
 Done when: tests cover valid token, wrong case, expired, reused, tampered, and non-owner instructor. That covers the token and approver parts of scenarios A3 and A4 in `docs/test-scenarios.md`.
 

@@ -1,7 +1,13 @@
 import pytest
+
 from harness.mock_zambeel import (
-    FeCapReached, IdempotencyConflict, enroll, get_section, get_student_profile,
+    FeCapReached,
+    IdempotencyConflict,
+    enroll,
+    get_section,
+    get_student_profile,
 )
+
 
 def count(db, student_id, offering_id):
     return db.execute(

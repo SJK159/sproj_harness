@@ -1,5 +1,8 @@
 import pytest
-from harness.mock_zambeel import UnknownCourse, UnknownStudent, check_fe_eligibility as fe
+
+from harness.mock_zambeel import UnknownCourse, UnknownStudent
+from harness.mock_zambeel import check_fe_eligibility as fe
+
 
 def test_e01_s1_cs412_s1_eligible(db):
     r = fe(db, "S1", "CS412", "S1")

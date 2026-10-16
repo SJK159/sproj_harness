@@ -94,6 +94,7 @@ CREATE TABLE approvals (
     instructor_id TEXT NOT NULL REFERENCES instructors(instructor_id),
     decision      TEXT NOT NULL CHECK (decision IN ('APPROVE', 'REJECT')),
     reason        TEXT,
+    token         TEXT,         -- signed approval token (APPROVE only); see harness.approvals
     nonce         TEXT UNIQUE,
     expires_at    TEXT,
     consumed_at   TEXT,

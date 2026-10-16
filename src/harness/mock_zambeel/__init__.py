@@ -1,7 +1,12 @@
 """Mock Zambeel: synthetic SQLite stand-in for the PeopleSoft student system."""
 
 from harness.mock_zambeel.db import connect, db_path, init_schema, reset_db
-from harness.mock_zambeel.policy import ADVISORY_CODES, BLOCKING_CODES, CREDIT_CAP, PROBATION_CGPA
+from harness.mock_zambeel.policy import (
+    ADVISORY_CODES,
+    BLOCKING_CODES,
+    CREDIT_CAP,
+    PROBATION_CGPA,
+)
 from harness.mock_zambeel.seed_data import CURRENT_TERM, seed
 from harness.mock_zambeel.zambeel import (
     AlreadyEnrolled,

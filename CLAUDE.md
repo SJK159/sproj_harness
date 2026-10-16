@@ -76,8 +76,9 @@ src/harness/
   tools/read_tools.py       profile, prereqs, seats, clashes, case status
   tools/write_tools.py      submit_case, execute_enrollment, notify_student
   mock_zambeel/             sqlite schema, seed data, enroll()
-  approvals.py              token mint / verify
+  approvals.py              token mint / verify, instructor decision
   audit.py                  audit_events writer
+  cases.py                  case state machine; transition() is the only state change
   cli.py                    student chat loop
 scripts/approve.py          instructor approve/reject + resume thread
 scripts/seed.py             reset and seed data/harness.db

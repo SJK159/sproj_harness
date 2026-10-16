@@ -9,7 +9,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from harness.mock_zambeel.policy import ADVISORY_CODES, BLOCKING_CODES, CREDIT_CAP, PROBATION_CGPA
+from harness.mock_zambeel.policy import (
+    ADVISORY_CODES,
+    BLOCKING_CODES,
+    CREDIT_CAP,
+    PROBATION_CGPA,
+)
 from harness.mock_zambeel.seed_data import CURRENT_TERM
 
 
