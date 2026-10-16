@@ -92,11 +92,30 @@ Why: one schema file for `data/harness.db`; M2 and M5 add code, not migrations. 
 **Unknown student or course raises; it never returns pass or fail.**
 Why: UC-03 says an incomplete record means "eligibility cannot be determined" and must not default to a pass. Raising forces the caller (later the eligibility sub-agent) to report that explicitly.
 
-**`enroll` does not re-check eligibility or seats.**
-Why: checks run before the case is created; the write is gated by the approval token in M5. Re-checking seats inside `enroll` would block exactly the case force enrollment exists for (a full section), if the team decides instructors may override capacity.
-Open: CLAUDE.md treats a full course (CS360) as ineligible. Real force enrollment is usually requested *because* a section is full. Confirm the intended rule with the department / supervisor.
+**`enroll` does not re-check eligibility.** (Superseded in part below: it now re-checks the FE cap.)
+Why: checks run before the case is created; the write is gated by the approval token in M5.
+
+## 2026-10-17 (M1 redesign: force-enrollment rules)
+
+**A full section is the reason for force enrollment, not a blocker.**
+Why: M1 treated 0 seats as ineligible, which is backwards for FE. A section with seats now returns SEATS_AVAILABLE ("register normally"), and an open, non-clashing section of the same course is suggested as OTHER_SECTION_OPEN. Each section has `fe_allowed` (instructor accepts FE) and `fe_cap` (FE slots over capacity); `fe_used` is computed from FORCE enrollments, like seats. Closes the open item from M1.
+
+**`check_fe_eligibility(conn, student_id, course_id, section)` returns every failing code, split into blocking and advisory.**
+Why: one call answers the whole question and explains every reason at once (the student fixes all problems in one go). Course + section instead of `offering_id`, because NOT_OFFERED (CS999) has no offering to name. `can_submit` = no blocking code and the section is full; only that allows a case. Unknown student or course still raises (UC-03).
+Alternative: stop at the first failure. Simpler, but hides the other reasons.
+
+**`submit_case` re-runs eligibility itself; the sub-agent verdict is never trusted (CLAUDE.md invariant 10).**
+Why: the sub-agent is an LLM. Its verdict is for the conversation; the gate is deterministic Python, like the token check.
+
+**`enroll` re-checks the FE cap at execution, under `BEGIN IMMEDIATE`.**
+Why: approval can happen days after submission; the cap may fill in between (scenario A5). `BEGIN IMMEDIATE` takes SQLite's write lock before counting, so two executions cannot both take the last slot (checked with two real connections racing: one FORCE, one `FeCapReached`). The idempotency key is checked first, so a retry of a completed case still returns its result. If a seat opened after approval, the student is enrolled REGULAR and no FE slot is used.
+Alternative: trust the approval-time check. Would over-fill the cap.
+
+**Placeholder rule numbers in `policy.py`: credit cap 20, probation below CGPA 2.0, prerequisites must be completed.**
+Why: they make every rule testable now. They are not LUMS policy and must be labelled as placeholders in the skill file (M3).
 
 ## Open
 
 - deepagents package vs plain LangGraph for the final system: take evidence from M5 to M7 to the supervisor.
 - Whether the LangGraph checkpointer can replace the `WORKFLOW_CASE` table. Current answer: no, checkpoints are opaque and not queryable for status (UC-02) or RBAC, so the cases table stays the source of truth.
+- Should `enroll` re-check credits and clashes at execution, not only the FE cap? Scenario A8: if both of S1's parallel cases were approved, S1 would reach 21 credits (cap 20).

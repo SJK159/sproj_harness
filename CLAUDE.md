@@ -30,13 +30,14 @@ Do not build these even if they seem helpful: RAG or a vector store, real Zambee
 
 1. No enrollment write without a valid approval. `execute_enrollment` itself verifies the approval token (HMAC signature, expiry, single use, bound to this case_id) and refuses otherwise. This gate is deterministic Python, never a prompt instruction. `interrupt_on` is how the human is asked; the token check is the security.
 2. Approval tokens are minted only by `scripts/approve.py` (instructor side). No tool the agent can call may mint one.
-3. Idempotency: the mock enrollment call uses case_id as the idempotency key. A retry returns the existing result and never enrolls twice.
+3. Idempotency: the mock enrollment call uses case_id as the idempotency key. A retry returns the existing result and never enrolls twice. `enroll` re-checks the section's FE cap at execution time, so an approved case can still end FAILED if the cap filled after approval.
 4. Every case state transition writes an `audit_events` row: case_id, actor, action, from_state, to_state, timestamp, detail.
 5. A student only ever sees their own data and cases. Tools read student_id from the runtime context, not from arguments the LLM fills in.
 6. One LangGraph thread per case: `thread_id = case_id`. The instructor's resume targets that thread.
 7. No secrets, real student data, or LUMS credentials in code, logs or commits. Synthetic data only.
 8. `submit_case` and `execute_enrollment` are gated with `allowed_decisions: ["approve", "reject"]` only. Never allow `edit` (it lets the resumer rewrite tool args such as case_id) or `respond` (it skips the tool and fakes a success result).
 9. Write tools (`submit_case`, `execute_enrollment`, `notify_student`) exist only on the main agent. No sub-agent may get them, including the `general-purpose` sub-agent deepagents adds automatically. Disable `general-purpose` unless M4 shows a reason to keep it.
+10. `submit_case` reruns `check_fe_eligibility` itself and refuses unless the result's `can_submit` is true (no blocking code, and the section is full). The sub-agent's verdict is never trusted for this.
 
 ## Case states
 
@@ -93,12 +94,12 @@ Backend routing (`CompositeBackend`). Skills and memory files are read through t
 
 ## Mock data
 
-Keep IDs stable so tests can rely on them:
-- `S1` eligible for `CS412` (prereqs met, seats free, no clash).
-- `S2` missing the prerequisite for `CS412`.
-- `CS360` is full (0 seats).
-- `S3` has a timetable clash with `CS412`.
-- Instructor `I1` owns `CS412` and `CS360`.
+Term `2026FA`. Keep IDs stable; tests rely on them. Full data: `src/harness/mock_zambeel/seed_data.py`. Every case: `docs/test-scenarios.md`.
+- A full section is the normal reason to request force enrollment (FE), not a blocker. A section with seats returns SEATS_AVAILABLE (register normally).
+- Placeholder rules (not LUMS policy), in `policy.py`: credit cap 20; CGPA below 2.0 = probation, cannot request FE; prerequisites must be completed.
+- `S1` happy path for `CS412-S1` (full, FE cap 3). `S2` missing CS310. `S3` clash. `S4` prereq in progress. `S5` at 20 credits. `S6` probation. `S7` year restriction (CS381). `S8` already enrolled. `S9` CGPA below CS582's minimum.
+- Instructors: `I1` owns CS412, CS360. `I2` owns CS300, CS370 (no FE), CS471 (FE cap reached). `I3` owns CS381, MATH120, CS582. `I4` owns gen-ed sections and CS310.
+- `S90`-`S93` are fillers that make sections full.
 
 ## Commands
 

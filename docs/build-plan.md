@@ -12,11 +12,11 @@ Done when: `uv run pytest` runs (even with 0 tests) and one agent run shows up i
 
 ## M1. Mock Zambeel (no LLM)
 
-- SQLite schema in `data/harness.db`: students, courses, offerings (term, section, seats, schedule), prerequisites, enrollments, cases, approvals, audit_events.
-- `scripts/seed.py --reset` loads the mock data listed in CLAUDE.md.
-- Plain functions: `get_student_profile`, `check_prerequisites`, `check_seats`, `check_clashes`, `enroll(student_id, offering_id, idempotency_key)`.
+- SQLite schema in `data/harness.db`: students (year, CGPA), courses, offerings (term, section, capacity, schedule, `fe_allowed`, `fe_cap`, year / CGPA restrictions), prerequisites, transcript, enrollments (REGULAR / FORCE), cases, approvals, audit_events.
+- `scripts/seed.py --reset` loads the data in `seed_data.py` (summary in CLAUDE.md, every case in `docs/test-scenarios.md`).
+- Plain functions: `get_student_profile`, `get_section`, `check_prerequisites`, `check_seats`, `check_clashes`, `check_fe_eligibility` (returns all failing codes), `enroll(student_id, offering_id, idempotency_key)` (re-checks the FE cap at execution).
 
-Done when: unit tests prove S1 passes all checks, S2 fails prereqs, CS360 has no seats, S3 has a clash, and calling `enroll` twice with the same key creates one enrollment.
+Done when: eligibility cases E01-E14 in `docs/test-scenarios.md` pass, `enroll` with the same key twice creates one enrollment, and a second force enrollment past the FE cap is refused.
 
 ## M2. Approvals and audit (no LLM)
 
@@ -24,7 +24,7 @@ Done when: unit tests prove S1 passes all checks, S2 fails prereqs, CS360 has no
 - Instructor must own the course to approve.
 - `audit.py`: one function that writes an audit_events row.
 
-Done when: tests cover valid token, wrong case, expired, reused, tampered, and non-owner instructor.
+Done when: tests cover valid token, wrong case, expired, reused, tampered, and non-owner instructor. That covers the token and approver parts of scenarios A3 and A4 in `docs/test-scenarios.md`.
 
 ## M3. Agent skeleton: planning + skills + read tools
 
@@ -42,12 +42,12 @@ Done when: asking "can i get force enrolled in CS412?" as S1 produces a `write_t
 ## M4. Sub-agent: eligibility-checker
 
 - Define `eligibility-checker` in `subagents.py` with only the read tools and a prompt that returns a compact verdict (eligible yes/no, failing check, reason).
-- The verdict is structured output: set `response_format` on the sub-agent spec to a schema (e.g. a Pydantic model with `eligible`, `failing_check`, `reason`). deepagents returns it to the main agent as the `task` tool result.
+- The verdict is structured output: set `response_format` on the sub-agent spec to a schema (e.g. a Pydantic model with `can_submit`, `blocking` codes, `advisory` codes, `reasons`), mirroring `check_fe_eligibility`. deepagents returns it to the main agent as the `task` tool result.
 - Disable the auto-added `general-purpose` sub-agent unless this milestone shows a reason to keep it (CLAUDE.md invariant 9).
 - Add a check (test or script) that lists every tool each sub-agent and the main agent can see. It must show no write tool on any sub-agent.
 - Remove the read tools from the main agent if the sub-agent covers them, and note the trade-off in decisions.md.
 
-Done when: the trace shows a `task` call to the sub-agent, and the main agent's context contains only the verdict, not raw tool output. Test with S1, S2, S3 and CS360. The tool-listing check passes.
+Done when: the trace shows a `task` call to the sub-agent, and the main agent's context contains only the verdict, not raw tool output. Test with E01, E02, E03, E04 and E12 from `docs/test-scenarios.md`. The tool-listing check passes.
 
 ## M5. Human in the loop + durable state
 
@@ -57,8 +57,9 @@ Done when: the trace shows a `task` call to the sub-agent, and the main agent's 
 - `cli.py` handles `__interrupt__` for the student confirmation and exits cleanly when waiting on the instructor.
 - `scripts/approve.py`: checks instructor ownership, mints token, records approval or rejection, resumes the thread with `Command(resume={"decisions": [...]})`.
 - Side effects must not repeat when a node or tool reruns on resume. Check this explicitly.
+- `submit_case` reruns `check_fe_eligibility` and refuses unless `can_submit` (CLAUDE.md invariant 10). `execute_enrollment` maps `FeCapReached` to FAILED.
 
-Done when: run S1 to the instructor pause, kill the process, run `approve.py`, and the case completes with one enrollment and a full audit trail. Rejection path ends at REJECTED with no enrollment.
+Done when: scenarios A1, A2, A6 and A9 in `docs/test-scenarios.md` pass (A9: run S1 to the instructor pause, kill the process, run `approve.py`, and the case completes with one enrollment and a full audit trail).
 
 ## M6. Long-term memory
 
@@ -69,12 +70,9 @@ Done when: in a brand new thread (and after a process restart), S1 asks "what ha
 
 ## M7. UC-01 acceptance tests
 
-Automated (or scripted) tests for:
-1. Happy path (S1, CS412, approve).
-2. Prereq fail (S2): no case created.
-3. Instructor reject: REJECTED, no enrollment.
-4. Missing / expired / reused token: `execute_enrollment` refuses, case flagged.
-5. Duplicate submission: existing case status returned, no second enrollment.
+Automated (or scripted) tests for every scenario in `docs/test-scenarios.md`:
+- A1 approve, A2 reject, A3 wrong approver, A4 bad token (expired / reused / tampered / other case), A5 FE cap race, A6 student cancels, A7 duplicate request, A8 parallel cases, A9 restart while waiting.
+- Any ineligible request (E03-E14) made through the agent creates no case.
 
 Plus: every processed case has an audit row for each transition.
 

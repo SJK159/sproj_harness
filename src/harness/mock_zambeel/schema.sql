@@ -6,7 +6,8 @@ CREATE TABLE students (
     student_id TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
     program    TEXT NOT NULL,
-    standing   TEXT NOT NULL
+    year       INTEGER NOT NULL CHECK (year BETWEEN 1 AND 5),
+    cgpa       REAL NOT NULL CHECK (cgpa BETWEEN 0 AND 4)
 );
 
 CREATE TABLE instructors (
@@ -43,6 +44,10 @@ CREATE TABLE offerings (
     section       TEXT NOT NULL,
     capacity      INTEGER NOT NULL CHECK (capacity >= 0),
     instructor_id TEXT NOT NULL REFERENCES instructors(instructor_id),
+    fe_allowed    INTEGER NOT NULL DEFAULT 0 CHECK (fe_allowed IN (0, 1)),  -- instructor accepts force enrollment
+    fe_cap        INTEGER NOT NULL DEFAULT 0 CHECK (fe_cap >= 0),           -- max force enrollments over capacity
+    min_year      INTEGER,                                                  -- NULL = no year restriction
+    min_cgpa      REAL,                                                     -- NULL = no CGPA minimum
     UNIQUE (course_id, term, section)
 );
 
@@ -55,12 +60,14 @@ CREATE TABLE offering_slots (
     CHECK (start < "end")
 );
 
--- Seats available = capacity - count(ENROLLED); never stored.
+-- Seats available = capacity - count(ENROLLED); fe_used = count(ENROLLED AND kind = 'FORCE').
+-- Neither is stored.
 CREATE TABLE enrollments (
     enrollment_id   INTEGER PRIMARY KEY AUTOINCREMENT,
     student_id      TEXT NOT NULL REFERENCES students(student_id),
     offering_id     TEXT NOT NULL REFERENCES offerings(offering_id),
     status          TEXT NOT NULL CHECK (status IN ('ENROLLED', 'DROPPED')),
+    kind            TEXT NOT NULL CHECK (kind IN ('REGULAR', 'FORCE')),
     idempotency_key TEXT UNIQUE,
     created_at      TEXT NOT NULL,
     UNIQUE (student_id, offering_id)
