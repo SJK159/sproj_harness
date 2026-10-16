@@ -1,0 +1,117 @@
+# LUMS Process Orchestrator: deep agent core
+
+Senior project (SProj 2026-27, Group 4 "Height Boosters", supervisor Dr. Ali Khawaja).
+A natural-language harness that sits in front of Zambeel (LUMS's Oracle PeopleSoft ERP). A student states a goal in plain English, and the harness checks eligibility, gets human approval, executes only authorized actions, and tracks the case to completion.
+
+This repo is the orchestrator: one deep agent (LangChain `deepagents`, running on LangGraph) that handles the force enrollment workflow end to end against a mock Zambeel.
+
+## Current target
+
+Force enrollment, end to end:
+
+1. Student asks for force enrollment in a course (CLI chat).
+2. Agent writes a plan with `write_todos`.
+3. Agent reads the force enrollment skill (`/skills/force-enrollment/SKILL.md`), a hand-written rules file that stands in for RAG.
+4. Agent delegates the prerequisite / seat / clash check to an `eligibility-checker` sub-agent via the `task` tool. Only a short verdict comes back.
+5. Agent calls `submit_case`, which pauses for student confirmation (`interrupt_on`).
+6. Case is created, instructor is "notified" (logged).
+7. Agent calls `execute_enrollment`, which pauses for instructor approval (`interrupt_on`). The process may be killed and restarted here.
+8. Instructor approves or rejects via `scripts/approve.py`, which records the decision and resumes the same thread.
+9. On approval, `execute_enrollment` verifies the token and enrolls the student in mock Zambeel.
+10. Agent notifies the student and writes a note to long-term memory (`/memories/students/<id>.md`).
+
+Deep agent concepts this build must exercise: planning (`write_todos`), sub-agents (`task`), human-in-the-loop (`interrupt_on`), short-term memory (checkpointer), long-term memory (`CompositeBackend` + persistent store), skills.
+
+## Out of scope right now
+
+Do not build these even if they seem helpful: RAG or a vector store, real Zambeel / PeopleSoft calls, a web frontend (CLI only), multiple domain agents or agent swarms, TA-ship, advising, LMS, Outlook.
+
+## Non-negotiable invariants
+
+1. No enrollment write without a valid approval. `execute_enrollment` itself verifies the approval token (HMAC signature, expiry, single use, bound to this case_id) and refuses otherwise. This gate is deterministic Python, never a prompt instruction. `interrupt_on` is how the human is asked; the token check is the security.
+2. Approval tokens are minted only by `scripts/approve.py` (instructor side). No tool the agent can call may mint one.
+3. Idempotency: the mock enrollment call uses case_id as the idempotency key. A retry returns the existing result and never enrolls twice.
+4. Every case state transition writes an `audit_events` row: case_id, actor, action, from_state, to_state, timestamp, detail.
+5. A student only ever sees their own data and cases. Tools read student_id from the runtime context, not from arguments the LLM fills in.
+6. One LangGraph thread per case: `thread_id = case_id`. The instructor's resume targets that thread.
+7. No secrets, real student data, or LUMS credentials in code, logs or commits. Synthetic data only.
+
+## Case states
+
+`DRAFT -> AWAITING_CONFIRMATION -> SUBMITTED -> AWAITING_APPROVAL -> APPROVED | REJECTED`, then `APPROVED -> EXECUTING -> COMPLETED | FAILED`.
+Student declines at confirmation -> `CANCELLED`. Ineligible requests never create a case. Rejection never leads to execution.
+
+## Stack
+
+- Python 3.11+, `uv` for env and deps, `pytest` for tests.
+- `deepagents`, `langgraph`, `langchain`.
+- Checkpointer: SQLite (`langgraph-checkpoint-sqlite`) in `data/checkpoints.db`, so paused runs survive restarts. `MemorySaver` is allowed only in unit tests.
+- Long-term store: a persistent LangGraph store (SQLite store if the installed langgraph provides one, otherwise Postgres). `InMemoryStore` only in unit tests.
+- Mock Zambeel, cases, approvals and audit events: one SQLite file `data/harness.db`.
+- Model: read from env var `HARNESS_MODEL` (a `provider:model` string). Never hardcode a model.
+- Tracing: LangSmith via env vars, used to show todos, sub-agent calls and interrupts.
+
+## API caution
+
+`deepagents` changes quickly. Before using any parameter (`interrupt_on`, `subagents`, `skills`, `memory`, `backend`, `store`, `context_schema`), check the installed package source or https://docs.langchain.com/oss/python/deepagents/ . Do not write code from memory of older versions. If docs and installed code disagree, the installed code wins, and say so.
+
+## Layout
+
+```
+CLAUDE.md
+docs/build-plan.md          milestones, one at a time
+docs/decisions.md           design decision log
+docs/reference/             BRD, technical proposal, deep agents primer (PDF)
+seed/agent_rules.md         standing rules, loaded into the agent's /memories/AGENTS.md
+skills/force-enrollment/SKILL.md
+src/harness/
+  agent.py                  create_deep_agent wiring
+  subagents.py              eligibility-checker definition
+  context.py                runtime context schema (student_id, role)
+  persistence.py            checkpointer + store + backend setup
+  tools/read_tools.py       profile, prereqs, seats, clashes, case status
+  tools/write_tools.py      submit_case, execute_enrollment, notify_student
+  mock_zambeel/             sqlite schema, seed data, enroll()
+  approvals.py              token mint / verify
+  audit.py                  audit_events writer
+  cli.py                    student chat loop
+scripts/approve.py          instructor approve/reject + resume thread
+scripts/seed.py             reset and seed data/harness.db
+tests/
+```
+
+Do not name any file `AGENTS.md` in this repo. Claude Code may read it as instructions for itself. The agent's rules live in `seed/agent_rules.md` and are loaded into the agent's virtual `/memories/AGENTS.md` at startup.
+
+## Mock data
+
+Keep IDs stable so tests can rely on them:
+- `S1` eligible for `CS412` (prereqs met, seats free, no clash).
+- `S2` missing the prerequisite for `CS412`.
+- `CS360` is full (0 seats).
+- `S3` has a timetable clash with `CS412`.
+- Instructor `I1` owns `CS412` and `CS360`.
+
+## Commands
+
+```
+uv sync
+uv run pytest
+uv run python scripts/seed.py --reset
+uv run python -m harness.cli --student S1
+uv run python scripts/approve.py --case <case_id> --instructor I1 --decision approve|reject [--reason "..."]
+```
+
+## How to work in this repo
+
+- Follow `docs/build-plan.md` one milestone at a time. Do not start the next milestone until the current one's "done when" checks pass.
+- Start each milestone in plan mode, propose the plan, and wait for approval before editing.
+- Small steps. After each step, run the tests or a demo command and show the output.
+- The first time a deepagents or LangGraph concept is used, explain in 2 or 3 plain sentences what it does and why it is used here. The team must be able to explain every mechanism precisely to the supervisor.
+- No vague claims ("complex", "long", "scalable", "faster") without a measurable meaning.
+- If something is uncertain (API behaviour, a design choice), say so and verify by running code or reading source instead of guessing.
+- Record design decisions in `docs/decisions.md` (date, decision, why, alternatives considered).
+- Commit after each milestone with a clear message.
+
+## Reference docs
+
+`docs/reference/` holds the BRD (v0.1), technical proposal and Deep Agents primer as PDFs. Read them only when a task needs requirement detail, e.g. UC-01 acceptance criteria are in section 9 of the BRD.
