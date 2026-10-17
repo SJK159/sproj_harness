@@ -274,6 +274,11 @@ Alternative considered: no cap. Rejected: an unbounded loop costs quota and, on 
 7 messy turns (vague course name, a 5,300-character pasted paragraph, topic switches, a recap request): 24 model calls and 13 tool calls in total (the looping run: 254+). Summarization fired once, at turn 5; the older turns were written to `/conversation_history/session_….md`; the turn-7 recap was coherent and correct. Not shown live: offloading of a large tool result (no result in this conversation exceeded 300 tokens; covered by the offline test) and the checker's `ask_student` (on "the machine learning course" the main agent asked for the code in chat itself; covered offline).
 Finding: asked "how many credits am I taking", the main agent said it had no tool for that. Since M4 `get_my_profile` lives only on the eligibility-checker. Candidate fix: give the main agent read access to the student's own profile (read-only, context-scoped).
 
+## 2026-10-17 (after M8)
+
+**`get_my_profile` is also on the main agent.**
+Why: the M8 demo showed the main agent could not answer "how many credits am I taking?" because M4 moved every read tool to the eligibility-checker. The profile is the signed-in student's own record, read-only, with the student taken from the runtime context (invariant 5), so it adds no write path or cross-student risk. Eligibility still goes through the checker (the prompt says not to use the profile for eligibility), so the "one audited path for eligibility" from M4 holds. Cost: one more tool schema in the main prompt.
+
 ## Open
 
 - deepagents package vs plain LangGraph for the final system: take evidence from M5 to M7 to the supervisor.

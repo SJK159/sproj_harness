@@ -40,7 +40,8 @@ def test_tool_visibility_per_agent(seeded):
         if name != "main":
             assert not names & (WRITE_TOOL_NAMES | FILE_WRITE_TOOL_NAMES | {"task"}), name
     assert {"task", "write_todos", "get_my_cases", "read_file"} <= tools["main"]
-    assert not tools["main"] & ELIGIBILITY_TOOLS
+    assert not tools["main"] & {"list_sections", "check_my_eligibility"}  # eligibility stays delegated
+    assert "get_my_profile" in tools["main"]  # own record, read-only (added after M8)
 
 
 def test_general_purpose_is_disabled_for_the_databricks_model(seeded, monkeypatch):

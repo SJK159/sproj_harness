@@ -28,12 +28,13 @@ from harness.memory import NOTES_PATH
 from harness.mock_zambeel import connect
 from harness.persistence import READ_ONLY, build_backend, open_store
 from harness.subagents import eligibility_checker
-from harness.tools.read_tools import get_my_cases
+from harness.tools.read_tools import get_my_cases, get_my_profile
 from harness.tools.write_tools import WRITE_TOOLS
 
-# Eligibility tools live on the eligibility-checker sub-agent. The main agent keeps case status and is
-# the only agent with write tools (invariant 9).
-MAIN_TOOLS = [get_my_cases, *WRITE_TOOLS]
+# Eligibility checks live on the eligibility-checker sub-agent. The main agent keeps case status, the student's
+# own profile (credits, CGPA, completed courses; read-only, context-scoped) and is the only agent with write
+# tools (invariant 9).
+MAIN_TOOLS = [get_my_cases, get_my_profile, *WRITE_TOOLS]
 
 
 def _describe_submit(tool_call, state, runtime) -> str:
@@ -103,7 +104,8 @@ For every force-enrollment or eligibility request, work in this order:
    if the student named one, the section. Never decide eligibility from your own reasoning.
 4. Answer from its verdict in a few short lines: the verdict per section, every reason with its rule label in
    parentheses (e.g. "(FE-n (placeholder v0.1))"), and any open section it suggests. Mark the todos complete.
-For case status questions, use `get_my_cases`.
+For case status questions, use `get_my_cases`. For questions about the student's own record (credits this term,
+CGPA, year, completed courses), use `get_my_profile`; do not use it to decide eligibility.
 
 Submitting (only when the verdict says can_submit for a section and the student wants that section):
 5. Call `submit_case(course_id, section)`. Do not ask "shall I submit?" in chat first: the system itself asks the

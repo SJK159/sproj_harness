@@ -17,8 +17,8 @@ def invoke(model, student="S1"):
 
 def test_main_agent_has_planner_delegation_and_the_write_tools(seeded):
     names = set(build_agent(model=scripted()).get_graph().nodes["tools"].data.tools_by_name)
-    assert {"write_todos", "read_file", "task", "get_my_cases"} <= names
-    assert not {"get_my_profile", "list_sections", "check_my_eligibility"} & names  # on the sub-agent since M4
+    assert {"write_todos", "read_file", "task", "get_my_cases", "get_my_profile"} <= names
+    assert not {"list_sections", "check_my_eligibility"} & names  # on the sub-agent since M4
     assert {"submit_case", "execute_enrollment", "notify_student"} <= names  # main agent only (invariant 9)
 
 
@@ -48,3 +48,12 @@ def test_rules_and_skills_are_read_only(seeded, tool, args):
     assert "permission denied" in tool_results(result)[tool].lower()
     assert (RULES.read_text(), SKILL.read_text()) == before
     assert not Path("skills/new-skill").exists()
+
+def test_main_agent_reads_only_the_callers_own_profile(seeded):
+    """"How many credits am I taking?" is answerable without delegating (gap found in the M8 demo)."""
+    import json
+    from fakes import tool_results
+
+    result = invoke(scripted(call("get_my_profile")), student="S5")
+    profile = json.loads(tool_results(result)["get_my_profile"])
+    assert (profile["student_id"], profile["credits"]) == ("S5", 20)
