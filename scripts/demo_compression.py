@@ -12,7 +12,12 @@ import secrets
 
 from langchain_core.messages.utils import count_tokens_approximately
 
-from harness.agent import DEMO_EVICT_TOKENS, DEMO_KEEP_MESSAGES, DEMO_TRIGGER_TOKENS, build_agent
+from harness.agent import (
+    DEMO_EVICT_TOKENS,
+    DEMO_KEEP_MESSAGES,
+    DEMO_TRIGGER_TOKENS,
+    build_agent,
+)
 from harness.clients import student_turn
 from harness.config import load_env
 from harness.persistence import open_checkpointer

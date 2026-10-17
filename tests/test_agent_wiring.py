@@ -52,6 +52,7 @@ def test_rules_and_skills_are_read_only(seeded, tool, args):
 def test_main_agent_reads_only_the_callers_own_profile(seeded):
     """"How many credits am I taking?" is answerable without delegating (gap found in the M8 demo)."""
     import json
+
     from fakes import tool_results
 
     result = invoke(scripted(call("get_my_profile")), student="S5")
