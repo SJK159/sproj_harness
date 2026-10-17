@@ -176,7 +176,7 @@ def _slot_text(conn: sqlite3.Connection, offering_id: str) -> str:
     rows = conn.execute(
         'SELECT day, start, "end" FROM offering_slots WHERE offering_id = ? ORDER BY start, day', (offering_id,)
     ).fetchall()
-    days = "".join(dict.fromkeys(r["day"] for r in rows))
+    days = "".join(sorted({r["day"] for r in rows}, key="MTWRF".index))  # weekday order: "TR", not "RT"
     return f"{days} {rows[0]['start']}-{rows[0]['end']}" if rows else "TBA"
 
 

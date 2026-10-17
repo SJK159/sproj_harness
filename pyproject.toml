@@ -25,3 +25,4 @@ packages = ["src/harness"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["live: calls the real model (skipped unless RUN_LIVE=1)"]

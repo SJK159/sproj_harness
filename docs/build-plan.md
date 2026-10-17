@@ -64,7 +64,7 @@ Done when: scenarios A1, A2, A6 and A9 in `docs/test-scenarios.md` pass (A9: run
 
 ## M6. Long-term memory
 
-- `CompositeBackend`: default `StateBackend`; `/memories/` routed to a persistent store namespaced per student; `/memories/AGENTS.md` loaded from `seed/agent_rules.md`.
+- `CompositeBackend`: add `/memories/` routed to a persistent store namespaced per student, for case notes only. Standing rules stay on the read-only `/rules/` route from M3 (decisions.md, 2026-10-17 M3).
 - After a case finishes, the agent writes a short note to `/memories/students/<id>.md`.
 
 Done when: in a brand new thread (and after a process restart), S1 asks "what happened with my last request?" and the agent answers from memory. S2's thread cannot read S1's memory.

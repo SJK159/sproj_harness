@@ -9,6 +9,7 @@ def test_e01_s1_cs412_s1_eligible(db):
     assert r.blocking == () and r.eligible and r.fe_needed and r.can_submit
     assert r.advisory == ("OTHER_SECTION_OPEN",)
     assert [s["offering_id"] for s in r.suggestions] == ["CS412-S2"]
+    assert r.suggestions[0]["time"] == "TR 14:00-15:15"
 
 def test_e02_s1_cs412_s2_seats_available(db):
     r = fe(db, "S1", "CS412", "S2")

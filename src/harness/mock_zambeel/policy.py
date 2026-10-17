@@ -28,3 +28,22 @@ ADVISORY_CODES = (
     "SEATS_AVAILABLE",
     "OTHER_SECTION_OPEN",
 )
+
+# Citable rule labels (FR-03 / NFR-07 without RAG). skills/force-enrollment/SKILL.md defines each one;
+# check_my_eligibility returns the label next to every code so the agent cites from tool output.
+_V = "(placeholder v0.1)"
+RULE_LABELS = {
+    "SEATS_AVAILABLE": f"FE-1 {_V}",
+    "OTHER_SECTION_OPEN": f"FE-1 {_V}",
+    "PREREQ_MISSING": f"FE-2 {_V}",
+    "PREREQ_IN_PROGRESS": f"FE-2 {_V}",
+    "CLASH": f"FE-3 {_V}",
+    "CREDIT_LIMIT": f"FE-4 {_V}",
+    "PROBATION": f"FE-5 {_V}",
+    "YEAR_RESTRICTION": f"FE-6 {_V}",
+    "CGPA_BELOW_MIN": f"FE-6 {_V}",
+    "FE_NOT_ACCEPTED": f"FE-7 {_V}",
+    "FE_CAP_REACHED": f"FE-7 {_V}",
+    "ALREADY_ENROLLED": f"FE-8 {_V}",
+    "NOT_OFFERED": f"FE-8 {_V}",
+}

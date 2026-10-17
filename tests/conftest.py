@@ -26,3 +26,9 @@ def awaiting(db):
         )
     db.commit()
     return db
+
+@pytest.fixture
+def seeded(db, tmp_path, monkeypatch):
+    """Point the agent's tools (which open their own connections) at the seeded test DB."""
+    monkeypatch.setenv("HARNESS_DB", str(tmp_path / "harness.db"))
+    return db

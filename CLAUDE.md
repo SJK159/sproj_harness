@@ -38,6 +38,7 @@ Do not build these even if they seem helpful: RAG or a vector store, real Zambee
 8. `submit_case` and `execute_enrollment` are gated with `allowed_decisions: ["approve", "reject"]` only. Never allow `edit` (it lets the resumer rewrite tool args such as case_id) or `respond` (it skips the tool and fakes a success result).
 9. Write tools (`submit_case`, `execute_enrollment`, `notify_student`) exist only on the main agent. No sub-agent may get them, including the `general-purpose` sub-agent deepagents adds automatically. Disable `general-purpose` unless M4 shows a reason to keep it.
 10. `submit_case` reruns `check_fe_eligibility` itself and refuses unless the result's `can_submit` is true (no blocking code, and the section is full). The sub-agent's verdict is never trusted for this.
+11. Skills and standing rules are read-only to the agent (write permission denied on `/skills/**` and `/rules/**`). Nothing said in a conversation can change them.
 
 ## Case states
 
@@ -66,14 +67,14 @@ docs/build-plan.md          milestones, one at a time
 docs/decisions.md           design decision log
 docs/reference/             BRD, technical proposal, deep agents primer (PDF)
 docs/reference/web/         snapshot of LangChain deepagents / LangGraph docs
-seed/agent_rules.md         standing rules, loaded into the agent's /memories/AGENTS.md
+seed/agent_rules.md         standing rules, mounted read-only at /rules/agent_rules.md
 skills/force-enrollment/SKILL.md
 src/harness/
   agent.py                  create_deep_agent wiring
   subagents.py              eligibility-checker definition
   context.py                runtime context schema (student_id, role)
   persistence.py            checkpointer + store + backend setup
-  tools/read_tools.py       profile, prereqs, seats, clashes, case status
+  tools/read_tools.py       get_my_profile, list_sections, check_my_eligibility, get_my_cases
   tools/write_tools.py      submit_case, execute_enrollment, notify_student
   mock_zambeel/             sqlite schema, seed data, enroll()
   approvals.py              token mint / verify, instructor decision
@@ -85,13 +86,14 @@ scripts/seed.py             reset and seed data/harness.db
 tests/
 ```
 
-Do not name any file `AGENTS.md` in this repo. Claude Code may read it as instructions for itself. The agent's rules live in `seed/agent_rules.md` and are loaded into the agent's virtual `/memories/AGENTS.md` at startup.
+Do not name any file `AGENTS.md` in this repo. Claude Code may read it as instructions for itself. The agent's rules live in `seed/agent_rules.md`, mounted read-only at `/rules/agent_rules.md` and loaded into the system prompt by our own `MemoryMiddleware`.
 
 Backend routing (`CompositeBackend`). Skills and memory files are read through the backend, not straight from disk:
 - default: `StateBackend` (per-thread scratch files).
-- `/skills/` -> `FilesystemBackend` pointing at the repo `skills/` folder.
-- `/memories/` -> `StoreBackend` on the `SqliteStore`, with the namespace built from `rt.context.student_id`, so each student's memories are separate.
-- At startup, `seed/agent_rules.md` is copied into the store as `/memories/AGENTS.md` (in the current student's namespace, since `/memories/` is namespaced per student).
+- `/skills/` -> `FilesystemBackend` on the repo `skills/` folder. Read-only.
+- `/rules/` -> `FilesystemBackend` on the repo `seed/` folder (standing rules). Read-only.
+- `/memories/` (M6) -> `StoreBackend` on the `SqliteStore`, namespace from `rt.context.student_id`: per-student case notes only, never rules.
+- Read-only is enforced by `FilesystemPermission(operations=["write"], paths=["/skills/**", "/rules/**"], mode="deny")`. The rules are loaded with our own `MemoryMiddleware` prompt, because deepagents' default memory prompt tells the agent to `edit_file` its memory files to "learn".
 
 ## Mock data
 
@@ -108,7 +110,8 @@ Term `2026FA`. Keep IDs stable; tests rely on them. Full data: `src/harness/mock
 uv sync
 uv run pytest
 uv run python scripts/seed.py --reset
-uv run python -m harness.cli --student S1
+uv run python -m harness.cli --student S1 [--message "..."]
+RUN_LIVE=1 uv run pytest -m live          # real-model tests (use Databricks quota)
 uv run python scripts/approve.py --case <case_id> --instructor I1 --decision approve|reject [--reason "..."]
 ```
 
