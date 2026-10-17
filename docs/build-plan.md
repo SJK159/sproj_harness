@@ -88,3 +88,5 @@ As built: `tests/test_acceptance_uc01.py` (offline, through the agent and client
 - Conditional interrupts with the `when` option on `interrupt_on`.
 - Sub-agent with its own `interrupt_on`.
 - Context compression: a long, messy conversation that triggers summarization and offloading, shown in the trace.
+
+As built (decisions.md, M8): `when` predicates on both write-tool pauses keyed on case state; `ask_student` with `respond` on the eligibility-checker's own `interrupt_on`; model profile with the real 128K window, a demo compression mode (`scripts/demo_compression.py`) and a per-run model-call cap.

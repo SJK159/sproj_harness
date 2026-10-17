@@ -26,6 +26,9 @@ from harness.mock_zambeel import ZambeelError, connect
 from harness.workflow import WorkflowRefused, open_case, record_confirmation
 
 Confirm = Callable[[dict[str, Any]], bool]
+Ask = Callable[[str], str]
+
+NO_STUDENT_ANSWER = "The student is not available to answer right now; report that the request is ambiguous."
 
 
 class NotWaitingForInstructor(Exception):
@@ -64,7 +67,7 @@ def _confirm_submission(case_id: str, student_id: str, args: dict[str, Any], con
     return {"type": "reject", "message": "The student declined at confirmation; the request was cancelled. Do not resubmit."}
 
 
-def _drive(agent: Any, case_id: str, student_id: str, payload: Any, confirm: Confirm) -> TurnResult:
+def _drive(agent: Any, case_id: str, student_id: str, payload: Any, confirm: Confirm, ask: Ask | None = None) -> TurnResult:
     context = HarnessContext(student_id=student_id)
     result = agent.invoke(payload, config=_thread(case_id), context=context)
     while result.get("__interrupt__"):
@@ -75,6 +78,9 @@ def _drive(agent: Any, case_id: str, student_id: str, payload: Any, confirm: Con
         for action in actions:
             if action["name"] == "submit_case":
                 decisions.append(_confirm_submission(case_id, student_id, action["args"], confirm))
+            elif action["name"] == "ask_student":  # the eligibility checker's question: the answer is the result
+                answer = ask(str(action["args"].get("question", ""))) if ask else NO_STUDENT_ANSWER
+                decisions.append({"type": "respond", "message": answer or NO_STUDENT_ANSWER})
             elif action["name"] == "execute_enrollment":
                 decisions.append({"type": "reject", "message": "Call execute_enrollment on its own, after submit_case returns."})
             else:
@@ -83,9 +89,10 @@ def _drive(agent: Any, case_id: str, student_id: str, payload: Any, confirm: Con
     return TurnResult("answered", _reply(result), case_id)
 
 
-def student_turn(agent: Any, case_id: str, student_id: str, text: str, confirm: Confirm) -> TurnResult:
-    """One student message on this session's thread, answering any confirmation pause via `confirm`."""
-    return _drive(agent, case_id, student_id, {"messages": [{"role": "user", "content": text}]}, confirm)
+def student_turn(agent: Any, case_id: str, student_id: str, text: str, confirm: Confirm, ask: Ask | None = None) -> TurnResult:
+    """One student message on this session's thread. `confirm` answers submission pauses; `ask` answers the
+    eligibility checker's clarifying questions (without it they get NO_STUDENT_ANSWER)."""
+    return _drive(agent, case_id, student_id, {"messages": [{"role": "user", "content": text}]}, confirm, ask)
 
 
 def pending_actions(agent: Any, case_id: str) -> list[str]:

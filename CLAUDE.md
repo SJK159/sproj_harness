@@ -35,7 +35,7 @@ Do not build these even if they seem helpful: RAG or a vector store, real Zambee
 5. A student only ever sees their own data and cases. Tools read student_id from the runtime context, not from arguments the LLM fills in.
 6. One LangGraph thread per case: `thread_id = case_id`. Each CLI session's thread id (`FE-<hex>`) is the case id it may create; one case per session. The instructor's resume targets that thread.
 7. No secrets, real student data, or LUMS credentials in code, logs or commits. Synthetic data only.
-8. `submit_case` and `execute_enrollment` are gated with `allowed_decisions: ["approve", "reject"]` only. Never allow `edit` (it lets the resumer rewrite tool args such as case_id) or `respond` (it skips the tool and fakes a success result).
+8. `submit_case` and `execute_enrollment` are gated with `allowed_decisions: ["approve", "reject"]` only. Never allow `edit` (it lets the resumer rewrite tool args such as case_id) or `respond` (it skips the tool and fakes a success result) on them. `respond` is allowed only for the read-only `ask_student` tool on the eligibility-checker, where the student's answer is the result. `when` predicates on these pauses must give the same answer before the pause and at resume.
 9. Write tools (`submit_case`, `execute_enrollment`, `notify_student`) exist only on the main agent. No sub-agent may get them, including the `general-purpose` sub-agent deepagents adds automatically. Disable `general-purpose` unless M4 shows a reason to keep it.
 10. `submit_case` reruns `check_fe_eligibility` itself and refuses unless the result's `can_submit` is true (no blocking code, and the section is full). The sub-agent's verdict is never trusted for this.
 11. Skills, standing rules and memory notes are read-only to the agent's file tools (write denied on `/skills/**`, `/rules/**`, `/memories/**`). Notes are added only by `save_case_note`, from the case record. Nothing said in a conversation can change them or reach a later system prompt.
@@ -80,6 +80,7 @@ src/harness/
   tools/read_tools.py       get_my_profile, list_sections, check_my_eligibility (sub-agent); get_my_cases (main)
   tools/write_tools.py      submit_case, execute_enrollment, notify_student (thin wrappers)
   tools/common.py           student from context, case from thread, JSON errors
+  tools/ask.py              ask_student (checker's clarifying question, answered via `respond`)
   workflow.py               deterministic case steps and the execution gate
   clients.py                student confirmation + instructor decision, resume paused threads
   notifications.py          notices to students / instructors
@@ -92,6 +93,7 @@ src/harness/
 scripts/approve.py          instructor approve/reject + resume thread
 scripts/seed.py             reset and seed data/harness.db
 scripts/list_agent_tools.py tools visible to each agent; fails if a sub-agent has a write tool
+scripts/demo_compression.py live demo of summarization + offloading (demo thresholds)
 tests/
 ```
 

@@ -46,6 +46,7 @@ def main() -> None:
     answer = parser.add_mutually_exclusive_group()
     answer.add_argument("--yes", action="store_true", help="answer yes to the submission confirmation (scripted runs)")
     answer.add_argument("--no", action="store_true", help="answer no to the submission confirmation (scripted runs)")
+    parser.add_argument("--answer", help="answer to give if the eligibility checker asks a question (scripted runs)")
     args = parser.parse_args()
 
     def confirm(summary: dict) -> bool:
@@ -54,6 +55,12 @@ def main() -> None:
             return args.yes
         return input(f"[confirm] Submit a force-enrollment request for {summary['offering_id']} "
                      f"(case {summary['case_id']})? [y/N] ").strip().lower() in {"y", "yes"}
+
+    def ask(question: str) -> str:
+        if args.answer is not None:
+            print(f"[checker asks] {question} -> {args.answer}")
+            return args.answer
+        return input(f"[checker asks] {question} ").strip()
 
     _show_notices(args.student)
     agent = build_agent(checkpointer=open_checkpointer())
@@ -69,7 +76,7 @@ def main() -> None:
             return
         if not text or text.lower() in {"exit", "quit"}:
             return
-        turn = student_turn(agent, case_id, args.student, text, confirm)
+        turn = student_turn(agent, case_id, args.student, text, confirm, ask)
         seen = _show_tool_calls(agent, case_id, seen)
         if turn.reply:
             print(f"\nassistant: {turn.reply}\n")

@@ -44,8 +44,8 @@ def flow(seeded, tmp_path, secret):
     class Flow:
         db = seeded
 
-        def agent(self, model):
-            return build_agent(model=model, checkpointer=open_checkpointer(tmp_path / "checkpoints.db"))
+        def agent(self, model, **kwargs):
+            return build_agent(model=model, checkpointer=open_checkpointer(tmp_path / "checkpoints.db"), **kwargs)
 
         def store(self):
             from harness.persistence import open_store

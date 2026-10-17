@@ -7,6 +7,9 @@ from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI
 
+# Context window of Databricks' gpt-oss endpoints (Databricks docs: 128K tokens).
+DATABRICKS_MAX_INPUT_TOKENS = 128_000
+
 
 def load_env() -> None:
     """Load .env into os.environ. Variables already set in the shell take precedence."""
@@ -49,5 +52,8 @@ def get_chat_model() -> BaseChatModel:
             base_url=f"{host}/serving-endpoints",
             api_key=_require_env("DATABRICKS_TOKEN"),
             use_responses_api=False,
+            # Without a profile, deepagents' summarization falls back to a 170,000-token trigger, above
+            # gpt-oss's 128K window, so it would never fire. With it: summarize at 85% of the window.
+            profile={"max_input_tokens": int(os.environ.get("HARNESS_MAX_INPUT_TOKENS") or DATABRICKS_MAX_INPUT_TOKENS)},
         )
     return init_chat_model(name)

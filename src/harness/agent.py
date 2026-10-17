@@ -1,5 +1,8 @@
 """Builds the student-facing deep agent."""
 
+from contextlib import closing
+from typing import Literal
+
 from deepagents import (
     GeneralPurposeSubagentProfile,
     HarnessProfile,
@@ -11,7 +14,9 @@ from deepagents._models import (  # private; pinned 0.7.28
     get_model_provider,
 )
 from deepagents.middleware import MemoryMiddleware
-from langchain.agents.middleware import TodoListMiddleware
+from deepagents.middleware.filesystem import FilesystemMiddleware
+from deepagents.middleware.summarization import SummarizationMiddleware
+from langchain.agents.middleware import ModelCallLimitMiddleware, TodoListMiddleware
 from langchain_core.language_models import BaseChatModel
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.store.base import BaseStore
@@ -20,6 +25,7 @@ from harness.config import get_chat_model
 from harness.context import HarnessContext
 from harness.guards import NudgeEmptyTurn
 from harness.memory import NOTES_PATH
+from harness.mock_zambeel import connect
 from harness.persistence import READ_ONLY, build_backend, open_store
 from harness.subagents import eligibility_checker
 from harness.tools.read_tools import get_my_cases
@@ -39,13 +45,51 @@ def _describe_execute(tool_call, state, runtime) -> str:
     return "Waiting for the section's instructor to approve or reject this force-enrollment request."
 
 
+def _case_state(request) -> str | None:
+    case_id = request.runtime.execution_info.thread_id
+    with closing(connect()) as conn:
+        row = conn.execute("SELECT state FROM cases WHERE case_id = ?", (case_id,)).fetchone()
+    return row["state"] if row else None
+
+
+# `when` predicates. LangGraph re-runs them on resume and skips the human's answer if they flip to False,
+# so each must give the same answer before the pause and at resume (states the clients write before resuming:
+# SUBMITTED / CANCELLED for the student, APPROVED / REJECTED for the instructor).
+_SUBMITTED_ALREADY = frozenset({"AWAITING_APPROVAL", "APPROVED", "EXECUTING", "COMPLETED", "REJECTED", "FAILED"})
+_INSTRUCTOR_PENDING = frozenset({"AWAITING_APPROVAL", "APPROVED", "REJECTED"})
+
+
+def submit_needs_confirmation(request) -> bool:
+    """Ask the student unless this session's case was already submitted (a repeat call returns its status)."""
+    return _case_state(request) not in _SUBMITTED_ALREADY
+
+
+def execute_needs_instructor(request) -> bool:
+    """Wait for the instructor only while a decision is pending or just recorded. Otherwise the tool answers at once:
+    no submitted case means a refusal, a finished case means its result (no pause that nobody will answer)."""
+    return _case_state(request) in _INSTRUCTOR_PENDING
+
+
 # Who is asked before a write tool runs. approve/reject only: `edit` would let the resumer rewrite the
 # tool's arguments and `respond` would skip the tool with a fake result (invariant 8). This pause is how
 # the human is asked; the gates in harness.workflow are what make the write safe.
 INTERRUPT_ON = {
-    "submit_case": {"allowed_decisions": ["approve", "reject"], "description": _describe_submit},
-    "execute_enrollment": {"allowed_decisions": ["approve", "reject"], "description": _describe_execute},
+    "submit_case": {"allowed_decisions": ["approve", "reject"], "description": _describe_submit,
+                    "when": submit_needs_confirmation},
+    "execute_enrollment": {"allowed_decisions": ["approve", "reject"], "description": _describe_execute,
+                           "when": execute_needs_instructor},
 }
+
+# Cost guard (all modes): one run (a student message or a resume) may call the model at most this often.
+# A normal force-enrollment turn uses 5-10 calls; the M8 compression bug looped for 250+ before this existed.
+MAX_MODEL_CALLS_PER_RUN = 25
+
+# Compression demo thresholds (scripts/demo_compression.py only). The default mode uses the model's real window.
+# Keep is a message count, not a fraction: keeping ~1,000 tokens (10% of a 10K window) dropped the skill read on
+# every summary and the agent re-read it in a loop (decisions.md, M8).
+DEMO_TRIGGER_TOKENS = 12_000  # summarize once the conversation passes this
+DEMO_KEEP_MESSAGES = 10  # most recent messages kept verbatim after a summary
+DEMO_EVICT_TOKENS = 300  # offload tool results larger than this to /large_tool_results/
 
 SYSTEM_PROMPT = """\
 You are the LUMS Process Orchestrator assistant. You help one signed-in student with force enrollment
@@ -53,7 +97,8 @@ You are the LUMS Process Orchestrator assistant. You help one signed-in student 
 
 For every force-enrollment or eligibility request, work in this order:
 1. Call `write_todos` first with a short plan for this request.
-2. Read the force-enrollment skill with `read_file` before you answer, unless you already read it in this conversation.
+2. Read the force-enrollment skill with `read_file` once per conversation. If earlier turns were summarized and the
+   summary says you read it, rely on that; re-read only a specific section when you need a rule's exact wording.
 3. Delegate the eligibility check with `task` to the `eligibility-checker` sub-agent. Give it the course and,
    if the student named one, the section. Never decide eligibility from your own reasoning.
 4. Answer from its verdict in a few short lines: the verdict per section, every reason with its rule label in
@@ -107,11 +152,22 @@ def build_agent(
     checkpointer: BaseCheckpointSaver | None = None,
     subagent_model: BaseChatModel | None = None,
     store: BaseStore | None = None,
+    compression: Literal["default", "demo"] = "default",
+    summary_model: BaseChatModel | None = None,
 ):
     model = model or get_chat_model()
     _disable_general_purpose(model)
     store = store if store is not None else open_store()
     backend = build_backend(store)
+    overrides = []
+    if compression == "demo":
+        # Same-named middleware replaces deepagents' default in place. The file middleware must be given
+        # READ_ONLY again (dropped otherwise).
+        overrides = [
+            SummarizationMiddleware(summary_model or model, backend=backend,
+                                    trigger=("tokens", DEMO_TRIGGER_TOKENS), keep=("messages", DEMO_KEEP_MESSAGES)),
+            FilesystemMiddleware(backend=backend, tool_token_limit_before_evict=DEMO_EVICT_TOKENS, _permissions=READ_ONLY),
+        ]
     return create_deep_agent(
         model=model,
         tools=MAIN_TOOLS,
@@ -122,6 +178,8 @@ def build_agent(
             TodoListMiddleware(),
             MemoryMiddleware(backend=backend, sources=["/rules/agent_rules.md", NOTES_PATH], system_prompt=RULES_PROMPT),
             NudgeEmptyTurn(),
+            ModelCallLimitMiddleware(run_limit=MAX_MODEL_CALLS_PER_RUN, exit_behavior="end"),
+            *overrides,
         ],
         skills=["/skills/"],
         backend=backend,

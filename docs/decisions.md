@@ -255,6 +255,25 @@ They run after every acceptance test and on the demo DB (`scripts/check_integrit
 **Live finding: the agent asked "shall I submit?" in chat even when told to submit.**
 First live acceptance run: A1 and E03 passed; A2 and A6 failed because the model answered "Would you like me to submit it now?" instead of calling `submit_case` (the same behaviour seen in the M5/M6 demos). That is a double confirmation, since the system already asks the student at the `submit_case` pause. Fix: the system prompt now says not to ask in chat before calling `submit_case` (offer to submit only when the student asked about eligibility). Second run: 4/4 live passed. Tests were not changed.
 
+## 2026-10-17 (M8: stretch)
+
+**`when` predicates on the two write-tool pauses, keyed on the case state.**
+Why: without them, a repeat `execute_enrollment` after completion would pause for an instructor who never comes (thread stranded), and a repeat `submit_case` would ask the student again. `submit_case` pauses unless the case is already AWAITING_APPROVAL or later; `execute_enrollment` pauses only while the case is AWAITING_APPROVAL, APPROVED or REJECTED. LangGraph re-runs the predicate at resume and skips the human's answer if it flips, so the sets were chosen to include the states the clients write before resuming (SUBMITTED/CANCELLED, APPROVED/REJECTED). Tested per state, and the M7 acceptance suite passes unchanged. The predicate reads the case via `runtime.execution_info.thread_id`.
+
+**The eligibility-checker has its own pause: `ask_student` answered with `respond` (chosen with the team).**
+Why: a sub-agent that cannot identify the course ("the ML course") should ask, not guess. The checker's own `interrupt_on` (`respond` only) overrides the main agent's, which it would otherwise inherit. The pause surfaces through `task` to the parent's `__interrupt__`; `student_turn(ask=...)` answers it, and with no student present the answer is "not available", so nothing hangs. `ask_student` is read-only and returns an error if it ever runs on its own; invariant 8 now names it as the only `respond` tool.
+
+**Real bug fixed: summarization could never trigger.**
+Our `ChatOpenAI`/Databricks model had no profile, so deepagents fell back to a 170,000-token trigger, above gpt-oss's 128K window. `get_chat_model()` now declares `max_input_tokens=128000` (`HARNESS_MAX_INPUT_TOKENS` to override): summarize at 85%, keep 10%.
+
+**Compression demo mode; first attempt looped, which led to a per-run model-call cap.**
+First demo run (10K profiled window: summarize at ~8,500 tokens, keep ~1,000): the agent read SKILL.md 164 times and made 254 model calls in 15 minutes before I stopped it. Cause: the kept tail (~1,000 tokens) was about one skill read (~850 tokens), so each summary dropped the read; the prompt said "read the skill unless you already read it", so it re-read, which pushed it over the trigger again. Fixes: demo mode now uses deepagents' `SummarizationMiddleware` directly with trigger 12,000 tokens and keep the last 10 messages; the prompt says to rely on a summary that mentions the skill; and `ModelCallLimitMiddleware` caps every run at 25 model calls on the main agent and 10 on the sub-agent, in all modes (test: a looping fake stops at exactly 25). Offload threshold in demo mode: 300 tokens.
+Alternative considered: no cap. Rejected: an unbounded loop costs quota and, on a paid model, money.
+
+**Live compression demo after the fixes (thread `FE-demo-efdca9`, 2026-10-17).**
+7 messy turns (vague course name, a 5,300-character pasted paragraph, topic switches, a recap request): 24 model calls and 13 tool calls in total (the looping run: 254+). Summarization fired once, at turn 5; the older turns were written to `/conversation_history/session_….md`; the turn-7 recap was coherent and correct. Not shown live: offloading of a large tool result (no result in this conversation exceeded 300 tokens; covered by the offline test) and the checker's `ask_student` (on "the machine learning course" the main agent asked for the code in chat itself; covered offline).
+Finding: asked "how many credits am I taking", the main agent said it had no tool for that. Since M4 `get_my_profile` lives only on the eligibility-checker. Candidate fix: give the main agent read access to the student's own profile (read-only, context-scoped).
+
 ## Open
 
 - deepagents package vs plain LangGraph for the final system: take evidence from M5 to M7 to the supervisor.
