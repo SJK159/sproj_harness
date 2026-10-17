@@ -116,6 +116,7 @@ Term `2026FA`. Keep IDs stable; tests rely on them. Full data: `src/harness/mock
 - `S1` happy path for `CS412-S1` (full, FE cap 3). `S2` missing CS310. `S3` clash. `S4` prereq in progress. `S5` at 20 credits. `S6` probation. `S7` year restriction (CS381). `S8` already enrolled. `S9` CGPA below CS582's minimum.
 - Instructors: `I1` owns CS412, CS360. `I2` owns CS300, CS370 (no FE), CS471 (FE cap reached). `I3` owns CS381, MATH120, CS582. `I4` owns gen-ed sections and CS310.
 - `S90`-`S93` are fillers that make sections full.
+- Extended catalogue for manual testing (only adds; S1-S9 results unchanged): instructors `I5`-`I8`, fillers `S94`-`S99`, 29 more courses / 34 sections (`EXTRA_*` in `seed_data.py`, cases in `tests/test_extended_catalogue.py`). 50 sections in total.
 
 ## Commands
 

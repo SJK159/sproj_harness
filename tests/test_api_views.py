@@ -25,7 +25,7 @@ def test_people(flow):
     assert set(students) == {f"S{i}" for i in range(1, 10)}  # fillers S90-S93 are not demo users
     assert students["S1"]["name"] and students["S1"]["hint"]
     instructors = {i["instructor_id"]: i for i in client.get("/api/instructors").json()}
-    assert set(instructors) == {"I1", "I2", "I3", "I4"}
+    assert set(instructors) == {f"I{i}" for i in range(1, 9)}  # I5-I8: extended catalogue
     assert {"CS412-S1", "CS412-S2"} <= set(instructors["I1"]["sections"])
 
 

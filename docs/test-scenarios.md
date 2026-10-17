@@ -80,3 +80,30 @@ EXECUTING → COMPLETED (or the branch shown).
 ### A9. Restart while waiting (M5, M7)
 - Steps: run A1 until AWAITING_APPROVAL; kill the process; start a new process; I1 approves via `scripts/approve.py`.
 - Expected: the same thread resumes from the SQLite checkpoint and the case COMPLETES; one enrollment; audit trail has no gaps or duplicates.
+
+## Extended catalogue (manual testing)
+
+Added 2026-10-18 (`EXTRA_*` in `seed_data.py`). It only adds rows; every scenario above gives the same result. Each line is pinned by `tests/test_extended_catalogue.py`.
+
+| Student | Section | Result | What it shows |
+|---|---|---|---|
+| S1 | CS330-S1 | can request, OTHER_SECTION_OPEN | FE allowed, another section (CS330-S2) has seats |
+| S1 | CS340-S1 / CS340-S2 | FE_CAP_REACHED / can request | two full sections, one out of FE slots |
+| S2 | CS350-S1 | PREREQ_MISSING | needs CS310 |
+| S4 | CS350-S1 | PREREQ_IN_PROGRESS | taking CS310 |
+| S1 | CS391-S1 | CLASH | MW 09:30 = HUM101 |
+| S8 | CS432-S1 | PREREQ_IN_PROGRESS | prerequisite chain via CS412 |
+| S3 | CS435-S1 | PREREQ_IN_PROGRESS | two prerequisites, one in progress |
+| S3 | CS450-S1 | YEAR_RESTRICTION | year 4+ |
+| S1 | CS473-S1 | FE_NOT_ACCEPTED | full, no FE |
+| S1 / S8 | CS491-S1 | can request / CGPA_BELOW_MIN | year 4 and CGPA 3.3 |
+| S5 | CS295-S1 | CREDIT_LIMIT (+ CLASH) | 1 credit over a 20-credit load |
+| S1 | EE210-S3 | SEATS_AVAILABLE | register normally (EE210 has 3 sections) |
+| S1 / S6 | MATH230-S1 | can request / PROBATION | no prerequisite |
+| S1 | MGMT250-S1 | FE_CAP_REACHED | all 3 FE slots used |
+| S1 | ECON200-S1 | PREREQ_IN_PROGRESS | taking ECON100 |
+| S9 | ECON310-S1 | can request | CGPA 2.8 meets 2.5 |
+| S7 | ART150-S1 | can request | year 2 meets year 2+ |
+
+Ask "which courses can I force enroll in?" as any student to see the whole-term scan; S1 can request 18 sections and is blocked from 12.
+

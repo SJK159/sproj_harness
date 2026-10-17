@@ -3,6 +3,7 @@ docs/test-scenarios.md rely on them.
 
 Students S1-S9 each exercise one eligibility rule (see docs/test-scenarios.md, E01-E14).
 S90-S93 are filler students that make sections full and hold CS471's used FE slots.
+The extended catalogue at the end (I5-I8, S94-S99, 29 more courses) only adds data for manual testing.
 Seeded enrollments bypass the eligibility checks on purpose.
 """
 
@@ -127,6 +128,113 @@ ENROLLMENTS = (
     + [("S93", "MATH120-S1", "REGULAR"), ("S93", "CS582-S1", "REGULAR")]
 )
 
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Extended catalogue (added 2026-10-18) for manual testing in the web UI and CLI: more courses, departments and rule
+# combinations. It only adds: S1-S9, I1-I4 and the sections above are unchanged, and no S1-S9 student is enrolled in
+# a new section, so every scenario in docs/test-scenarios.md gives the same result. New sections belong to I5-I8.
+# Fillers S94-S99 fill the "full" sections and hold their used FE slots.
+
+EXTRA_INSTRUCTORS = [
+    ("I5", "Instructor Five"),   # CS electives
+    ("I6", "Instructor Six"),    # EE, MATH, PHY, CHEM
+    ("I7", "Instructor Seven"),  # ECON, MGMT, FIN
+    ("I8", "Instructor Eight"),  # LAW, PSY, HIST, ART, URDU
+]
+
+EXTRA_FILLERS = [(f"S{n}", f"Filler {n}", "BS Computer Science", 3, 3.0) for n in range(94, 100)]
+
+EXTRA_COURSES = [
+    ("CS295", "Programming Lab", 1, "CS"),
+    ("CS330", "Database Systems", 3, "CS"),
+    ("CS340", "Computer Architecture", 3, "CS"),
+    ("CS350", "Theory of Computation", 3, "CS"),
+    ("CS391", "Human-Computer Interaction", 3, "CS"),
+    ("CS432", "Computer Vision", 4, "CS"),
+    ("CS435", "Natural Language Processing", 3, "CS"),
+    ("CS450", "Distributed Systems", 3, "CS"),
+    ("CS473", "Network Security", 3, "CS"),
+    ("CS491", "Senior Project", 4, "CS"),
+    ("EE210", "Circuits", 4, "EE"),
+    ("EE240", "Digital Logic", 3, "EE"),
+    ("EE320", "Signals and Systems", 3, "EE"),
+    ("MATH101", "Calculus I", 3, "MATH"),
+    ("MATH230", "Probability and Statistics", 3, "MATH"),
+    ("MATH310", "Real Analysis", 3, "MATH"),
+    ("PHY101", "Mechanics", 4, "PHY"),
+    ("PHY201", "Electromagnetism", 4, "PHY"),
+    ("CHEM101", "General Chemistry", 3, "CHEM"),
+    ("ECON200", "Intermediate Microeconomics", 3, "ECON"),
+    ("ECON310", "Econometrics", 3, "ECON"),
+    ("MGMT101", "Introduction to Management", 3, "MGMT"),
+    ("MGMT250", "Marketing", 3, "MGMT"),
+    ("FIN201", "Corporate Finance", 3, "FIN"),
+    ("LAW101", "Introduction to Law", 2, "LAW"),
+    ("PSY101", "Introduction to Psychology", 3, "PSY"),
+    ("HIST110", "World History", 3, "HIST"),
+    ("ART150", "Studio Art", 1, "ART"),
+    ("URDU100", "Urdu Literature", 3, "URDU"),
+]
+
+EXTRA_PREREQUISITES = [
+    ("CS330", "CS200"), ("CS340", "CS200"), ("CS391", "CS200"), ("CS491", "CS200"),
+    ("CS350", "CS310"), ("CS450", "CS310"), ("CS473", "CS310"),
+    ("CS432", "CS412"),                         # chain: nobody has completed CS412 (S8 is taking it)
+    ("CS435", "CS310"), ("CS435", "MATH120"),   # two prerequisites (S3 is taking MATH120)
+    ("EE320", "EE210"), ("MATH310", "MATH120"), ("PHY201", "PHY101"),
+    ("ECON200", "ECON100"),                     # S1 and S5 are taking ECON100: in progress
+]
+
+# Same columns as OFFERINGS, plus: full (fillers take every seat) and fe_used (fillers holding FE slots).
+# What each row exercises is noted at the end; "S1 clash" means it overlaps a section S1 is enrolled in.
+EXTRA_OFFERINGS = [
+    ("CS295-S1", "CS295", "S1", 2, "I5", 1, 5, None, None, F, "14:00", "16:45", True, 0),   # 1 credit; S1/S5 clash
+    ("CS330-S1", "CS330", "S1", 3, "I5", 1, 2, None, None, MW, "12:30", "13:45", True, 0),  # FE ok; S2 open
+    ("CS330-S2", "CS330", "S2", 35, "I5", 0, 0, None, None, TR, "14:00", "15:15", False, 0),
+    ("CS340-S1", "CS340", "S1", 2, "I5", 1, 1, None, None, MW, "14:00", "15:15", True, 1),  # FE cap reached
+    ("CS340-S2", "CS340", "S2", 2, "I5", 1, 2, None, None, TR, "09:30", "10:45", True, 0),  # FE ok
+    ("CS350-S1", "CS350", "S1", 2, "I5", 1, 2, None, None, TR, "11:00", "12:15", True, 0),  # needs CS310
+    ("CS391-S1", "CS391", "S1", 3, "I5", 1, 3, None, None, MW, "09:30", "10:45", True, 0),  # clashes HUM101
+    ("CS432-S1", "CS432", "S1", 1, "I5", 1, 2, None, None, MW, "15:30", "16:45", True, 0),  # 4 cr; needs CS412
+    ("CS435-S1", "CS435", "S1", 2, "I5", 1, 2, None, 3.0, TR, "09:30", "10:45", True, 0),   # two prereqs; CGPA 3.0
+    ("CS450-S1", "CS450", "S1", 2, "I5", 1, 2, 4, None, MW, "08:00", "09:15", True, 0),     # year 4+
+    ("CS473-S1", "CS473", "S1", 2, "I5", 0, 0, None, None, TR, "17:00", "18:15", True, 0),  # full, no FE
+    ("CS491-S1", "CS491", "S1", 1, "I5", 1, 1, 4, 3.3, F, "09:00", "11:30", True, 0),       # year 4 + CGPA 3.3
+    ("EE210-S1", "EE210", "S1", 2, "I6", 1, 2, None, None, MW, "08:00", "09:15", True, 0),  # 3 sections
+    ("EE210-S2", "EE210", "S2", 2, "I6", 1, 2, None, None, TR, "14:00", "15:15", True, 0),
+    ("EE210-S3", "EE210", "S3", 30, "I6", 0, 0, None, None, MW, "15:30", "16:45", False, 0),
+    ("EE240-S1", "EE240", "S1", 40, "I6", 0, 0, None, None, TR, "09:30", "10:45", False, 0),  # open
+    ("EE320-S1", "EE320", "S1", 2, "I6", 1, 2, None, None, TR, "11:00", "12:15", True, 0),  # needs EE210
+    ("MATH101-S1", "MATH101", "S1", 60, "I6", 0, 0, None, None, MW, "08:00", "09:15", False, 0),
+    ("MATH101-S2", "MATH101", "S2", 60, "I6", 0, 0, None, None, TR, "11:00", "12:15", False, 0),
+    ("MATH230-S1", "MATH230", "S1", 3, "I6", 1, 3, None, None, MW, "14:00", "15:15", True, 0),  # FE ok, no prereq
+    ("MATH310-S1", "MATH310", "S1", 1, "I6", 1, 1, 3, None, TR, "08:00", "09:15", True, 0),   # S1 clash; MATH120
+    ("PHY101-S1", "PHY101", "S1", 3, "I6", 0, 0, None, None, MW, "11:00", "12:15", True, 0),  # full, no FE
+    ("PHY201-S1", "PHY201", "S1", 30, "I6", 0, 0, None, None, TR, "12:30", "13:45", False, 0),  # open; S1 clash
+    ("CHEM101-S1", "CHEM101", "S1", 2, "I6", 1, 2, None, None, F, "09:00", "11:30", True, 0),  # S4 clash
+    ("ECON200-S1", "ECON200", "S1", 2, "I7", 1, 2, None, None, MW, "12:30", "13:45", True, 0),  # ECON100 in prog.
+    ("ECON310-S1", "ECON310", "S1", 2, "I7", 1, 2, None, 2.5, TR, "15:30", "16:45", True, 0),  # CGPA 2.5
+    ("MGMT101-S1", "MGMT101", "S1", 80, "I7", 0, 0, None, None, MW, "15:30", "16:45", False, 0),  # open
+    ("MGMT250-S1", "MGMT250", "S1", 3, "I7", 1, 3, None, None, TR, "11:00", "12:15", True, 3),  # FE cap reached
+    ("FIN201-S1", "FIN201", "S1", 2, "I7", 1, 2, 3, None, MW, "11:00", "12:15", True, 0),   # year 3+; S3 clash
+    ("LAW101-S1", "LAW101", "S1", 2, "I8", 1, 2, None, None, TR, "17:00", "18:15", True, 0),  # 2 cr; S5 clash
+    ("PSY101-S1", "PSY101", "S1", 100, "I8", 0, 0, None, None, F, "09:00", "11:30", False, 0),  # open
+    ("HIST110-S1", "HIST110", "S1", 3, "I8", 1, 4, None, None, MW, "17:00", "18:15", True, 0),  # S1 clash
+    ("ART150-S1", "ART150", "S1", 2, "I8", 1, 2, 2, None, TR, "17:00", "18:15", True, 0),    # 1 cr; year 2+
+    ("URDU100-S1", "URDU100", "S1", 40, "I8", 0, 0, None, None, TR, "15:30", "16:45", False, 0),  # open
+]
+
+_FILLER_IDS = [f[0] for f in EXTRA_FILLERS]
+INSTRUCTORS += EXTRA_INSTRUCTORS
+STUDENTS += EXTRA_FILLERS
+COURSES += EXTRA_COURSES
+PREREQUISITES += EXTRA_PREREQUISITES
+OFFERINGS += [row[:12] for row in EXTRA_OFFERINGS]
+ENROLLMENTS += [  # a full section: fillers take every seat; fe_used more fillers hold force enrollments
+    (_FILLER_IDS[i], row[0], "REGULAR") for row in EXTRA_OFFERINGS if row[12] for i in range(row[3])
+] + [
+    (_FILLER_IDS[row[3] + i], row[0], "FORCE") for row in EXTRA_OFFERINGS for i in range(row[13])
+]
 
 def seed(conn: sqlite3.Connection) -> None:
     with conn:

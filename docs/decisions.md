@@ -321,6 +321,9 @@ Why: in the web UI, "what courses are on offer?" and "which courses can I force 
 Alternative considered: let the checker loop `check_my_eligibility` over `list_offerings`. Rejected: 16 sections is 16+ model calls against a 10-call sub-agent cap, and each copy is a chance to drop a code.
 Live (S2, scratch database): the catalogue question used one `list_offerings` call; the scan answer named CS360-S1 and MATH120-S1, matching a direct check. The first scan answer summarized the blocked sections with "e.g."; the main prompt now asks for one line per blocked section with each reason and label, and the re-run listed all five with their labels.
 
+**Extended catalogue for manual testing (2026-10-18).**
+Why: with 16 sections, most questions in the web UI hit the same few cases. Added I5-I8, fillers S94-S99, 29 courses and 34 sections across 13 departments, varying credits (1-4), prerequisites (none, one, a chain, two), sections per course (1-3), full/open, FE accepted / not accepted / cap reached, year and CGPA minimums, and timetable clashes with existing students. It only adds rows and no S1-S9 student is enrolled in a new section, so all earlier tests pass unchanged (one test relaxed to allow I5-I8). `tests/test_extended_catalogue.py` pins 21 student/section results. Live: S1's whole-term scan (50 sections, 5,390-character tool result) was answered correctly in 45 s: 18 requestable, 12 blocked with labels.
+
 ## Open
 
 - deepagents package vs plain LangGraph for the final system: take evidence from M5 to M7 to the supervisor.
