@@ -8,7 +8,12 @@ export function useRun() {
   const [turn, setTurn] = useState<LiveTurn | null>(null);
   const streamRef = useRef<RunStream | null>(null);
   const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; streamRef.current?.stop(); }, []);
+  // Set alive on every mount: React StrictMode (dev) mounts, unmounts and mounts again, and a cleanup-only
+  // effect left it false for good, so every stream stopped after its first event.
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; streamRef.current?.stop(); };
+  }, []);
 
   const start = useCallback(async (stream: RunStream, onEvent?: (ev: RunEvent, t: LiveTurn) => void): Promise<LiveTurn> => {
     streamRef.current = stream;

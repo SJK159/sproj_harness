@@ -24,7 +24,7 @@ Deep agent concepts this build must exercise: planning (`write_todos`, opt-in in
 
 ## Out of scope right now
 
-Do not build these even if they seem helpful: RAG or a vector store, real Zambeel / PeopleSoft calls, a web frontend (CLI only), multiple domain agents or agent swarms, TA-ship, advising, LMS, Outlook.
+Do not build these even if they seem helpful: RAG or a vector store, real Zambeel / PeopleSoft calls, authentication or deployment of the web frontend (it is a local demo), multiple domain agents or agent swarms, TA-ship, advising, LMS, Outlook.
 
 ## Non-negotiable invariants
 
@@ -90,8 +90,9 @@ src/harness/
   audit.py                  audit_events writer
   cases.py                  case state machine; transition() is the only state change
   cli.py                    student chat loop
+  api/                      HTTP API for frontend/ (FastAPI + SSE): app.py routes, events.py run -> RunEvents, views.py contract objects
 scripts/approve.py          instructor approve/reject + resume thread
-frontend/                   React chat UI (Claude Design); runs on its built-in mock until the HTTP API exists
+frontend/                   React chat UI (Claude Design); mock by default, real API with VITE_USE_MOCK=false
 scripts/seed.py             reset and seed data/harness.db
 scripts/list_agent_tools.py tools visible to each agent; fails if a sub-agent has a write tool
 scripts/demo_compression.py live demo of summarization + offloading (demo thresholds)
@@ -129,6 +130,8 @@ uv run python scripts/check_integrity.py  # O-02 / O-03 checks on data/harness.d
 uv run python scripts/acceptance_report.py [--live]   # writes docs/acceptance-report.md
 uv run --with reportlab python scripts/make_explainer.py   # rebuilds docs/LUMS-Orchestrator-Explained.pdf
 uv run python scripts/approve.py --case <case_id> --instructor I1 --decision approve|reject [--reason "..."]
+uv run python -m harness.api               # HTTP API on 127.0.0.1:8000 (no auth: local demo only)
+cd frontend && VITE_USE_MOCK=false npm run dev   # web UI against that API (http://localhost:5173)
 ```
 
 ## How to work in this repo

@@ -28,6 +28,15 @@ VITE_API_BASE_URL=http://localhost:8000 # used when VITE_USE_MOCK=false
 
 Components only import `api` from `src/api/client.ts`, which picks `mockApi` or `httpApi` from `VITE_USE_MOCK`. Restart `npm run dev` after changing `.env`.
 
+Against the real agent (from the repo root; needs `.env` with the model settings and a seeded `data/harness.db`):
+
+```
+uv run python -m harness.api                       # API on 127.0.0.1:8000
+cd frontend && VITE_USE_MOCK=false npm run dev     # UI on http://localhost:5173
+```
+
+Real runs differ from the mock in two visible ways: the model's text and reasoning arrive once per model call rather than word by word, and audit actions use the backend's names (`CREATE`, `CONFIRM`, `ROUTE_TO_INSTRUCTOR`, ...; `laneLabel` in `src/lib/turn.ts` maps both).
+
 ## Where the contract lives
 
 | File | What |
@@ -73,9 +82,9 @@ Seeded history: S1 has completed case `FE-0f2144b5` (CS412-S1, approved by I1, i
 
 ## Notes and gaps against the contract
 
-- **Instructor "Decided" list**: no endpoint in the contract. `ApiClient.listDecided` is implemented by the mock; `httpApi` returns `[]` until an endpoint exists (suggested: `GET /api/instructors/{id}/decided`).
-- **Instructor notifications**: the contract only has `GET /api/students/{id}/notifications`. The client calls the same path with an instructor id.
-- **"Eligibility at submission"** on the instructor screen reads `detail.eligibility` of the `APPROVAL_REQUESTED` audit event. The real backend should put those facts there (or the screen shows "Not recorded yet").
+- **Instructor "Decided" list**: `GET /api/instructors/{id}/decided` (added with the backend, M9).
+- **Instructor notifications**: `GET /api/students/{id}/notifications` serves any recipient id, instructors included.
+- **"Eligibility at submission"** on the instructor screen reads `detail.eligibility` of the routing audit event (`ROUTE_TO_INSTRUCTOR` in the backend, `APPROVAL_REQUESTED` in the mock). The backend records it from the eligibility check it runs at submission.
 - **Seeded past case date**: S1's completed `FE-0f2144b5` is dated Spring 2026 so it doesn't block the Fall 2026 happy path for CS412-S1.
 - **Case creation timing**: following scenario 2, the case is created (DRAFT → AWAITING_CONFIRMATION) when the agent prepares the request, so Decline can end in CANCELLED. The inspector's empty state says so.
 - **Reconnection**: if a stream drops, the turn ends with an error card and Retry; reopening the chat reloads messages from `GET /api/sessions/{id}/messages`. There is no automatic SSE resume (the contract has no run-resume endpoint).

@@ -279,6 +279,40 @@ Finding: asked "how many credits am I taking", the main agent said it had no too
 **`get_my_profile` is also on the main agent.**
 Why: the M8 demo showed the main agent could not answer "how many credits am I taking?" because M4 moved every read tool to the eligibility-checker. The profile is the signed-in student's own record, read-only, with the student taken from the runtime context (invariant 5), so it adds no write path or cross-student risk. Eligibility still goes through the checker (the prompt says not to use the profile for eligibility), so the "one audited path for eligibility" from M4 holds. Cost: one more tool schema in the main prompt.
 
+## 2026-10-18 (M9: HTTP API for the web frontend)
+
+**A FastAPI server is a third client of the same agent, next to the CLI and `approve.py`.**
+Why: the frontend needs the agent over HTTP, and nothing about the agent, its tools or the gates should change for that. `clients.py` was split into halves the API reuses (`prepare_confirmation` / `answer_confirmation`, `record_instructor_decision`); the CLI and `approve.py` now call the same halves, and the 159 existing tests passed unchanged after the split. Approval tokens are still minted only inside `approvals.decide`.
+
+**Server-Sent Events, using FastAPI's built-in support (`fastapi.sse.EventSourceResponse`, FastAPI 0.143.3).**
+Why: the stream is one-way (server to browser) per request, which is what SSE is for; a WebSocket adds a second protocol for no use here. The plan said to hand-write the SSE format; the installed FastAPI turned out to ship it, including a keep-alive comment every 15 s, so that was used instead. Guards run as FastAPI dependencies, which finish before the first byte is streamed, so refusals are plain JSON 403/404/409 responses.
+
+**A pause ends the HTTP run; a later request answers it.**
+The CLI answers pauses inside one call with callbacks. Over HTTP the run ends with an `interrupt` event and `run.finished: interrupted` (or `waiting_for_instructor`); `POST /resume` (student) or `POST /cases/{id}/decision` (instructor) records the answer in the database first, then resumes the same thread. When the answer is already known it is given inside the run, as in the CLI: a request that cannot be opened is refused at once, and in the instructor's resumed run (no student present) a confirmation is declined and a question gets "not available". On a resume, tool calls left open by the pause are shown again as running steps, so a resumed sub-agent nests under its `task` step.
+
+**Updates-only streaming; no token streaming (found live).**
+First live run: 400 from Databricks on the second model call. With LangGraph's "messages" stream mode, `ChatOpenAI` calls the endpoint in streaming mode, and gpt-oss's streamed reply aggregates into a malformed content list (a bare `''` plus one reasoning block per fragment). Databricks rejects that list when it is sent back on the next call. A direct check: an invoked reply sent back works; a streamed one fails. So the API streams graph updates only. Text and reasoning arrive once per model call, not word by word, and the model is called exactly as the CLI calls it, so the checkpointed conversation does not depend on which client drove it.
+Alternative considered: keep token streaming and repair the aggregated message. Rejected: it would change what is stored in the checkpoint compared with the CLI, for a cosmetic gain.
+
+**Sub-agent steps are nested by stream namespace.**
+With `subgraphs=True`, the eligibility checker's events arrive under a `("tools:<task id>",)` namespace (checked by a probe before coding). The first event of a new namespace is bound to the oldest `task` call not yet bound. That is exact for one `task` at a time, which is how the agent works; parallel `task` calls could be paired wrongly in the display (never in the data).
+
+**Case, notice and memory events come from the database, not the graph.**
+After each tool step the stream reads `audit_events` rows of this case, notices to the acting person and the student's memory notes added since the run started. Only real state changes go on the case lane; refusal and token rows stay in the audit trail. A student's stream never carries the instructor's notice, and vice versa.
+
+**The chat history is rebuilt from the checkpoint; there is no second transcript.**
+`GET /sessions/{id}/messages` turns the thread's messages into chat messages with their steps and verdict. A `sessions` table (created by the API in `harness.db`) only records sessions that have no case yet and their titles; session id = thread id = case id, as in the CLI.
+
+**No authentication: a local demo on 127.0.0.1.**
+The frontend sends a claimed student or instructor id with each call, exactly like `--student S1`. A body id that does not own the session gets 403, and inside a run the agent's student comes from the session owner, never from the request (invariant 5). Before any real deployment this is the first thing to replace: identity must come from the server's own login session.
+
+**Bugs found only in the live run, and fixed.**
+1. FastAPI runs a request's dependency and its endpoint on different worker threads, and a default `sqlite3` connection refuses use from another thread (500s on page load). `connect(check_same_thread=False)` is now used for the per-request connection only; a regression test uses it from a second thread. `TestClient` had not caught it.
+2. Frontend (Claude Design export), `useRun`: the cleanup set `alive = false` and nothing set it back on mount. React StrictMode (development) mounts twice, so every stream stopped after its first event ("connection closed") while the server finished the run. Fixed by setting `alive = true` in the effect.
+
+**Live check (2026-10-18, scratch database `data/m9-live/`).**
+S1 "submit CS412 section S1" ran with the real model: checker verdict → confirm card → confirm → AWAITING_APPROVAL. Reopening the chat rebuilt it from the checkpoint. I1 saw the case with the eligibility snapshot, approved it, and the resumed run streamed APPROVED → EXECUTING → COMPLETED. Results: one FORCE enrollment, a memory note, notices to I1 and S1, and `check_integrity.py` clean. S6 "CS582 section S1": verdict with PROBATION (FE-5) and CGPA_BELOW_MIN (FE-6), no case, no confirm card.
+
 ## Open
 
 - deepagents package vs plain LangGraph for the final system: take evidence from M5 to M7 to the supervisor.

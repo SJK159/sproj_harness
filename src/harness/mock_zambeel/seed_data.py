@@ -29,6 +29,20 @@ STUDENTS = [
     ("S93", "Filler Ninety-Three", "BS Computer Science", 4, 3.5),
 ]
 
+# One line per demo student for the frontend's switcher (the scenario each one exercises; docs/test-scenarios.md).
+# The fillers S90-S93 only fill sections and are not listed.
+SCENARIO_HINTS = {
+    "S1": "Happy path: CS412-S1 is full and open to force enrollment",
+    "S2": "Missing the CS310 prerequisite",
+    "S3": "Timetable clash",
+    "S4": "Prerequisite still in progress",
+    "S5": "Already at the 20-credit cap",
+    "S6": "On probation (CGPA below 2.0)",
+    "S7": "Year restriction (CS381)",
+    "S8": "Already enrolled",
+    "S9": "CGPA below CS582's minimum",
+}
+
 INSTRUCTORS = [
     ("I1", "Instructor One"),
     ("I2", "Instructor Two"),

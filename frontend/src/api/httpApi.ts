@@ -99,7 +99,7 @@ export function createHttpApi(baseUrl: string): ApiClient {
     },
     getCase: (id) => json<CaseDetail>(`/api/cases/${encodeURIComponent(id)}`),
     listPending: (id) => json<Case[]>(`/api/instructors/${encodeURIComponent(id)}/pending`),
-    listDecided: async () => [],
+    listDecided: (id) => json<Case[]>(`/api/instructors/${encodeURIComponent(id)}/decided`),
     async decide(caseId, instructor_id, decision: Decision, reason?: string): Promise<DecisionResult> {
       const ctrl = new AbortController();
       const res = await post(`/api/cases/${encodeURIComponent(caseId)}/decision`, { instructor_id, decision, reason }, ctrl);

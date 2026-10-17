@@ -68,16 +68,18 @@ const updateStep = (steps: Step[], id: string, patch: Partial<Step>) =>
 export function laneLabel(ev: AuditEvent): string {
   const d = ev.detail ?? {};
   switch (ev.action) {
-    case 'CASE_CREATED': return 'Case created';
-    case 'CONFIRMATION_REQUESTED': return 'Waiting for you to confirm';
-    case 'STUDENT_CONFIRMED': return 'You confirmed';
-    case 'STUDENT_DECLINED': return 'You declined';
-    case 'APPROVAL_REQUESTED': return `Sent to ${typeof d.instructor_id === 'string' ? d.instructor_id : 'the instructor'}`;
-    case 'APPROVED': return `Approved by ${ev.actor}`;
-    case 'REJECTED': return `Rejected by ${ev.actor}`;
-    case 'EXECUTION_STARTED': return 'Enrolling';
+    // Mock action names first, then the backend's (src/harness/workflow.py, approvals.py) where they differ.
+    case 'CASE_CREATED': case 'CREATE': return 'Case created';
+    case 'CONFIRMATION_REQUESTED': case 'REQUEST_CONFIRMATION': return 'Waiting for you to confirm';
+    case 'STUDENT_CONFIRMED': case 'CONFIRM': return 'You confirmed';
+    case 'STUDENT_DECLINED': case 'DECLINE': return 'You declined';
+    case 'APPROVAL_REQUESTED': case 'ROUTE_TO_INSTRUCTOR':
+      return `Sent to ${typeof d.instructor_id === 'string' ? d.instructor_id : 'the instructor'}`;
+    case 'APPROVED': case 'APPROVE': return `Approved by ${ev.actor}`;
+    case 'REJECTED': case 'REJECT': return `Rejected by ${ev.actor}`;
+    case 'EXECUTION_STARTED': case 'EXECUTE': return 'Enrolling';
     case 'ENROLLED': return 'Enrolled';
-    case 'NO_LONGER_ELIGIBLE': return 'No longer eligible';
+    case 'NO_LONGER_ELIGIBLE': case 'INELIGIBLE_AT_SUBMIT': return 'No longer eligible';
     case 'FAILED': return 'Failed';
     default: return humanize(ev.action);
   }

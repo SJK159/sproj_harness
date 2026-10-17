@@ -59,7 +59,7 @@ export function CaseReview({ caseId }: { caseId: string }) {
 
   const c = detail.case;
   const waiting = c.state === 'AWAITING_APPROVAL';
-  const elig = detail.audit.find((e) => e.action === 'APPROVAL_REQUESTED')?.detail?.eligibility;
+  const elig = detail.audit.find((e) => e.action === 'ROUTE_TO_INSTRUCTOR' || e.action === 'APPROVAL_REQUESTED')?.detail?.eligibility;
   const facts = elig && typeof elig === 'object' ? Object.entries(elig as Record<string, unknown>) : [];
   const owner = detail.instructor_id === app.instructorId;
 

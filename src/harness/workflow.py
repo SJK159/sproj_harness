@@ -23,6 +23,7 @@ from harness.mock_zambeel import (
     check_fe_eligibility,
     enroll,
     get_section,
+    get_student_profile,
 )
 from harness.mock_zambeel.policy import RULE_LABELS
 from harness.notifications import notify
@@ -125,6 +126,25 @@ def record_confirmation(conn: sqlite3.Connection, case_id: str, student_id: str,
     return target
 
 
+def _eligibility_snapshot(conn: sqlite3.Connection, student_id: str, section: dict[str, Any],
+                          eligibility: Eligibility) -> dict[str, Any]:
+    """What the instructor sees at approval time: the facts behind the check that just passed, as of now."""
+    profile = get_student_profile(conn, student_id)
+    credits = conn.execute("SELECT credits FROM courses WHERE course_id = ?", (section["course_id"],)).fetchone()[0]
+    prereqs = [r[0] for r in conn.execute(
+        "SELECT prereq_course_id FROM prerequisites WHERE course_id = ? ORDER BY prereq_course_id", (section["course_id"],))]
+    return {
+        "year": profile["year"],
+        "cgpa": profile["cgpa"],
+        "credits_now": profile["credits"],
+        "credits_after": profile["credits"] + credits,
+        "prerequisites": f"{', '.join(prereqs)} completed" if prereqs else "none",
+        "fe_slots": f"{section['fe_used']} of {section['fe_cap']} used",
+        "rules": "no blocking rule failed (placeholder v0.1)",
+        "advisory": ", ".join(eligibility.advisory) or "none",
+    }
+
+
 def submit(conn: sqlite3.Connection, case_id: str, student_id: str) -> dict[str, Any]:
     """Route a confirmed case to the section's instructor. Re-runs eligibility first (invariant 10)."""
     case = _own_case(conn, case_id, student_id)
@@ -143,7 +163,8 @@ def submit(conn: sqlite3.Connection, case_id: str, student_id: str) -> dict[str,
         raise NotEligible(eligibility)
     with conn:
         transition(conn, case_id, "AWAITING_APPROVAL", "system", "ROUTE_TO_INSTRUCTOR",
-                   {"instructor_id": section["instructor_id"]})
+                   {"instructor_id": section["instructor_id"],
+                    "eligibility": _eligibility_snapshot(conn, student_id, section, eligibility)})
         notify(conn, section["instructor_id"], case_id, "APPROVAL_REQUESTED",
                f"Student {student_id} requests force enrollment in {case['offering_id']} (case {case_id}). "
                f"Approve or reject: scripts/approve.py --case {case_id} --instructor {section['instructor_id']} "

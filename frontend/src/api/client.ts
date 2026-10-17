@@ -32,7 +32,7 @@ export interface ApiClient {
   resume(sessionId: string, body: ResumeBody): RunStream;
   getCase(caseId: string): Promise<CaseDetail>;
   listPending(instructorId: string): Promise<Case[]>;
-  /** Not in the contract yet: cases this instructor already decided. httpApi returns []. */
+  /** GET /api/instructors/{id}/decided: cases this instructor already decided (added with the backend, M9). */
   listDecided(instructorId: string): Promise<Case[]>;
   decide(caseId: string, instructorId: string, decision: Decision, reason?: string): Promise<DecisionResult>;
   stop(sessionId: string): Promise<void>;

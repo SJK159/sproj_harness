@@ -90,3 +90,17 @@ As built: `tests/test_acceptance_uc01.py` (offline, through the agent and client
 - Context compression: a long, messy conversation that triggers summarization and offloading, shown in the trace.
 
 As built (decisions.md, M8): `when` predicates on both write-tool pauses keyed on case state; `ask_student` with `respond` on the eligibility-checker's own `interrupt_on`; model profile with the real 128K window, a demo compression mode (`scripts/demo_compression.py`) and a per-run model-call cap.
+
+## M9. HTTP API for the web frontend
+
+The frontend in `frontend/` (Claude Design export) talks to the same agent the CLI drives.
+
+- FastAPI server with the endpoints of `docs/frontend-design-prompt.md` ("API contract"), plus `GET /api/instructors/{id}/decided`.
+- Agent runs streamed as Server-Sent Events in the `RunEvent` format, including sub-agent steps nested under their `task` call.
+- Pauses end a run; the student's confirm/decline or answer, and the instructor's decision, resume it with a later request.
+- Guards before streaming: wrong student 403, wrong instructor 403, nothing waiting 409, unknown id 404.
+
+Done when: offline tests cover every stream and guard; the S1 happy path (ask, confirm, I1 approves) and S6's refusal work live in the browser; `scripts/check_integrity.py` is clean afterwards.
+
+As built (decisions.md, M9): `src/harness/api/`, 22 offline tests, live run on a scratch database. Two live-only bugs fixed (cross-thread SQLite use; frontend `useRun` under React StrictMode) and token streaming dropped for a Databricks incompatibility.
+
