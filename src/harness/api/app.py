@@ -44,6 +44,7 @@ from harness.mock_zambeel import UnknownStudent
 from harness.workflow import WorkflowRefused
 
 TITLE_CHARS = 60
+LOCAL_ORIGIN = r"http://(localhost|127\.0\.0\.1|\[::1\]):\d+"  # matched against the whole Origin header
 STALE_RUN_SECONDS = 15 * 60  # a run lock older than this is treated as abandoned
 
 
@@ -120,8 +121,9 @@ def create_app(agent: Any = None, store: BaseStore | None = None) -> FastAPI:
         store = open_store()
 
     app = FastAPI(title="LUMS force-enrollment harness API")
-    origins = os.environ.get("HARNESS_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
-    app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in origins.split(",") if o.strip()],
+    # Any port on this machine (Vite moves to 5174 when 5173 is taken); HARNESS_CORS_ORIGINS adds exact origins.
+    extra = [o.strip() for o in os.environ.get("HARNESS_CORS_ORIGINS", "").split(",") if o.strip()]
+    app.add_middleware(CORSMiddleware, allow_origins=extra, allow_origin_regex=LOCAL_ORIGIN,
                        allow_methods=["GET", "POST"], allow_headers=["Content-Type", "Accept"])
     runs = Runs()
 

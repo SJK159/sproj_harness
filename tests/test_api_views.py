@@ -119,3 +119,14 @@ def test_request_connection_can_move_between_threads(seeded):
         worker.start()
         worker.join()
         assert result and result[0] > 0
+
+
+def test_cors_allows_any_local_dev_port_only(flow):
+    """Vite moves to 5174 when 5173 is taken; the browser then blocked every call (found in Safari)."""
+    client = api(flow, scripted())
+    for origin in ("http://localhost:5173", "http://localhost:5174", "http://127.0.0.1:4173"):
+        r = client.get("/api/students", headers={"Origin": origin})
+        assert r.headers.get("access-control-allow-origin") == origin
+    for origin in ("http://evil.example", "http://localhost.evil.example:5173"):
+        r = client.get("/api/students", headers={"Origin": origin})
+        assert "access-control-allow-origin" not in r.headers
