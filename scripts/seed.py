@@ -9,6 +9,7 @@ from pathlib import Path
 
 from harness.config import load_env
 from harness.mock_zambeel import db_path, reset_db, seed
+from harness.persistence import store_path
 
 TABLES = [
     "students", "instructors", "courses", "prerequisites", "transcript",
@@ -19,7 +20,8 @@ TABLES = [
 def main() -> int:
     load_env()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--reset", action="store_true", help="delete the existing DB (all cases and audit rows) first")
+    parser.add_argument("--reset", action="store_true",
+                        help="delete the existing DB (all cases and audit rows) and the memory store first")
     parser.add_argument("--db", type=Path, help="DB path (default: HARNESS_DB or data/harness.db)")
     args = parser.parse_args()
 
@@ -31,6 +33,9 @@ def main() -> int:
     conn = reset_db(path)
     seed(conn)
     print(f"seeded {path}")
+    if args.db is None and store_path().exists():  # notes would point at cases that no longer exist
+        store_path().unlink()
+        print(f"cleared {store_path()}")
     for table in TABLES:
         print(f"  {table:<15} {conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]}")
     conn.close()

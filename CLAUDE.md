@@ -18,7 +18,7 @@ Force enrollment, end to end:
 7. Agent calls `execute_enrollment`, which pauses for instructor approval (`interrupt_on`). The process may be killed and restarted here.
 8. Instructor approves or rejects via `scripts/approve.py`, which records the decision and resumes the same thread.
 9. On approval, `execute_enrollment` verifies the token and enrolls the student in mock Zambeel.
-10. Agent notifies the student and writes a note to long-term memory (`/memories/students/<id>.md`).
+10. Agent notifies the student and calls `save_case_note`, which writes a note built from the case record to long-term memory (`/memories/notes.md` in that student's store namespace).
 
 Deep agent concepts this build must exercise: planning (`write_todos`, opt-in in deepagents 0.7.28 via `TodoListMiddleware`), sub-agents (`task`), human-in-the-loop (`interrupt_on`), short-term memory (checkpointer), long-term memory (`CompositeBackend` + persistent store), skills.
 
@@ -38,7 +38,7 @@ Do not build these even if they seem helpful: RAG or a vector store, real Zambee
 8. `submit_case` and `execute_enrollment` are gated with `allowed_decisions: ["approve", "reject"]` only. Never allow `edit` (it lets the resumer rewrite tool args such as case_id) or `respond` (it skips the tool and fakes a success result).
 9. Write tools (`submit_case`, `execute_enrollment`, `notify_student`) exist only on the main agent. No sub-agent may get them, including the `general-purpose` sub-agent deepagents adds automatically. Disable `general-purpose` unless M4 shows a reason to keep it.
 10. `submit_case` reruns `check_fe_eligibility` itself and refuses unless the result's `can_submit` is true (no blocking code, and the section is full). The sub-agent's verdict is never trusted for this.
-11. Skills and standing rules are read-only to the agent (write permission denied on `/skills/**` and `/rules/**`). Nothing said in a conversation can change them.
+11. Skills, standing rules and memory notes are read-only to the agent's file tools (write denied on `/skills/**`, `/rules/**`, `/memories/**`). Notes are added only by `save_case_note`, from the case record. Nothing said in a conversation can change them or reach a later system prompt.
 
 ## Case states
 
@@ -51,7 +51,7 @@ Added in M5: `SUBMITTED -> CANCELLED` (no longer eligible when submit_case re-ch
 - Python 3.11+, `uv` for env and deps, `pytest` for tests.
 - `deepagents`, `langgraph`, `langchain`. Versions checked on 2026-10-17: deepagents 0.7.28, langgraph 1.2.15, langchain 1.4.6, langgraph-checkpoint-sqlite 3.1.2. `uv.lock` pins what is actually installed.
 - Checkpointer: SQLite (`langgraph-checkpoint-sqlite`) in `data/checkpoints.db`, so paused runs survive restarts. `MemorySaver` is allowed only in unit tests.
-- Long-term store: `langgraph.store.sqlite.SqliteStore` (ships with `langgraph-checkpoint-sqlite`). `InMemoryStore` only in unit tests.
+- Long-term store: `langgraph.store.sqlite.SqliteStore` (ships with `langgraph-checkpoint-sqlite`) in `data/store.db` (`HARNESS_STORE`). `InMemoryStore` only in unit tests.
 - Mock Zambeel, cases, approvals and audit events: one SQLite file `data/harness.db`.
 - Model: read from env var `HARNESS_MODEL` (a `provider:model` string). Never hardcode a model. Dev model is `databricks:databricks-gpt-oss-120b` (Databricks Free Edition, called through `ChatOpenAI` on `<host>/serving-endpoints`); `harness.config.get_chat_model()` builds it.
 - Tracing: LangSmith via env vars, used to show todos, sub-agent calls and interrupts.
@@ -85,6 +85,7 @@ src/harness/
   notifications.py          notices to students / instructors
   mock_zambeel/             sqlite schema, seed data, enroll()
   approvals.py              token mint / verify, instructor decision
+  memory.py                 per-student notes: namespace, note text from case records
   audit.py                  audit_events writer
   cases.py                  case state machine; transition() is the only state change
   cli.py                    student chat loop
@@ -100,7 +101,7 @@ Backend routing (`CompositeBackend`). Skills and memory files are read through t
 - default: `StateBackend` (per-thread scratch files).
 - `/skills/` -> `FilesystemBackend` on the repo `skills/` folder. Read-only.
 - `/rules/` -> `FilesystemBackend` on the repo `seed/` folder (standing rules). Read-only.
-- `/memories/` (M6) -> `StoreBackend` on the `SqliteStore`, namespace from `rt.context.student_id`: per-student case notes only, never rules.
+- `/memories/` -> `StoreBackend` on the `SqliteStore`, namespace `("students", <student_id from context>, "memories")`: per-student case notes in `/memories/notes.md`, never rules. Loaded with the rules by the same `MemoryMiddleware`.
 - Read-only is enforced by `FilesystemPermission(operations=["write"], paths=["/skills/**", "/rules/**"], mode="deny")`. The rules are loaded with our own `MemoryMiddleware` prompt, because deepagents' default memory prompt tells the agent to `edit_file` its memory files to "learn".
 
 ## Mock data

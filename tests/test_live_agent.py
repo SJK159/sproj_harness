@@ -68,3 +68,21 @@ def test_a1_live_submit_then_approve(flow):
     instructor_resume(flow.agent(model), "FE-live-a1", "I1", "approve")
     assert get_case(flow.db, "FE-live-a1")["state"] == "COMPLETED"
     assert enrollment_count(flow.db, "FE-live-a1") == 1
+
+
+def test_m6_live_answer_from_memory_in_a_new_thread(flow):
+    """After a live A1 run, a new session (new agent and connections) answers from the saved note."""
+    from harness.clients import instructor_resume, student_turn
+    from harness.config import get_chat_model
+    from harness.memory import read_notes
+
+    load_env()
+    model = get_chat_model()
+    student_turn(flow.agent(model), "FE-live-m6", "S1",
+                 "Please submit a force-enrollment request for me for CS412 section S1.", confirm=lambda s: True)
+    instructor_resume(flow.agent(model), "FE-live-m6", "I1", "approve")
+    assert "FE-live-m6" in read_notes(flow.store(), "S1"), "agent did not save the case note"
+    answer = student_turn(flow.agent(model), "FE-live-later", "S1", "What happened with my last request?",
+                          confirm=lambda s: False).reply
+    text = re.sub(DASHES, "-", answer)
+    assert "CS412" in text and re.search(r"enrol|complete|approv", text, re.IGNORECASE), text

@@ -67,6 +67,7 @@ Done when: scenarios A1, A2, A6 and A9 in `docs/test-scenarios.md` pass (A9: run
 
 - `CompositeBackend`: add `/memories/` routed to a persistent store namespaced per student, for case notes only. Standing rules stay on the read-only `/rules/` route from M3 (decisions.md, 2026-10-17 M3).
 - After a case finishes, the agent writes a short note to `/memories/students/<id>.md`.
+- As built: the agent calls `save_case_note`, which writes a line built from the case record to `/memories/notes.md` in the student's namespace; file tools cannot write `/memories/**` (decisions.md, M6).
 
 Done when: in a brand new thread (and after a process restart), S1 asks "what happened with my last request?" and the agent answers from memory. S2's thread cannot read S1's memory.
 

@@ -31,6 +31,7 @@ def awaiting(db):
 def seeded(db, tmp_path, monkeypatch):
     """Point the agent's tools (which open their own connections) at the seeded test DB."""
     monkeypatch.setenv("HARNESS_DB", str(tmp_path / "harness.db"))
+    monkeypatch.setenv("HARNESS_STORE", str(tmp_path / "store.db"))
     return db
 
 @pytest.fixture
@@ -45,5 +46,9 @@ def flow(seeded, tmp_path, secret):
 
         def agent(self, model):
             return build_agent(model=model, checkpointer=open_checkpointer(tmp_path / "checkpoints.db"))
+
+        def store(self):
+            from harness.persistence import open_store
+            return open_store(tmp_path / "store.db")
 
     return Flow()

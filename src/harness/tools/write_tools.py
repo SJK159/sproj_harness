@@ -12,6 +12,7 @@ from langchain.tools import ToolRuntime, tool
 
 from harness.cases import get_case
 from harness.context import HarnessContext
+from harness.memory import FINAL_STATES, append_note, case_note
 from harness.mock_zambeel import connect
 from harness.notifications import notify
 from harness.tools.common import Refused, case_id_of, run_json, student_id_of
@@ -58,4 +59,25 @@ def notify_student(message: str, runtime: ToolRuntime[HarnessContext]) -> str:
     return run_json(go)
 
 
-WRITE_TOOLS = [submit_case, execute_enrollment, notify_student]
+@tool
+def save_case_note(runtime: ToolRuntime[HarnessContext]) -> str:
+    """Save a one-line note about this session's finished case to the student's long-term memory, so later
+    sessions know what happened. The note is written from the case record. Call it once the case is
+    COMPLETED, FAILED, REJECTED or CANCELLED."""
+    def go() -> dict[str, Any]:
+        student_id, case_id = student_id_of(runtime), case_id_of(runtime)
+        if runtime.store is None:
+            raise Refused("Long-term memory is not configured.")
+        with closing(connect()) as conn:
+            case = get_case(conn, case_id)
+            if case["student_id"] != student_id:
+                raise Refused(f"Case {case_id} belongs to another student.")
+            if case["state"] not in FINAL_STATES:
+                raise Refused(f"Case {case_id} is {case['state']}; notes are saved only for finished cases.")
+            line = case_note(conn, case)
+        saved = append_note(runtime.store, student_id, case_id, line)
+        return {"saved": saved, "note": line}
+    return run_json(go)
+
+
+WRITE_TOOLS = [submit_case, execute_enrollment, notify_student, save_case_note]
