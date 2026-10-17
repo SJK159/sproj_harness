@@ -164,6 +164,34 @@ Why: the CLI keeps a conversation per `thread_id` (`chat-<student>-<hex>`). The 
 - It writes typographic hyphens (U+2011) in labels ("FE‑1"). The live test normalises dashes before matching the label; any future check of citations must do the same.
 - One of four live runs failed with `OpenAIConnectionError` (transient network error to Databricks). Demos should allow a retry.
 
+## 2026-10-17 (M4: eligibility-checker sub-agent)
+
+**Eligibility runs in an `eligibility-checker` sub-agent that returns a structured `EligibilityVerdict`.**
+Why: the main agent's context gets one verdict (per section: can_submit, blocking and advisory codes with labels and reasons, suggestions) instead of raw `list_sections` / `check_my_eligibility` JSON. Live trace `m4-done-when`: main thread `write_todos -> read_file -> task -> write_todos`; inside `task`: `list_sections`, `check_my_eligibility` x2. Main-thread tool messages contain no eligibility tool output (also tested offline).
+Verified by a scratchpad probe before building: tools inside a sub-agent receive the parent's runtime context (`student_id`), and the sub-agent's first input is only its system prompt and the task description.
+The verdict is for the conversation only; `submit_case` re-runs `check_fe_eligibility` (invariant 10).
+
+**Read tools moved to the sub-agent; main agent keeps `get_my_cases`.**
+Trade-off: the main agent can no longer list sections or check eligibility itself; it must delegate, which costs one more model round trip per eligibility question (the sub-agent's 2-4 calls). In exchange its context stays small and every eligibility answer passes through one audited path.
+
+**Sub-agent file tools cut to `read_file` only.**
+Why: by default every sub-agent gets `write_file`, `edit_file`, `delete` and `execute`. `FilesystemMiddleware(tools=["read_file"])` replaces that; `read_file` is the minimum the middleware accepts (it raises on an empty list).
+
+**`general-purpose` sub-agent disabled through a HarnessProfile.**
+Why: it would inherit every main-agent tool, including the M5 write tools (invariant 9). The only switch in 0.7.28 is `register_harness_profile(key, HarnessProfile(general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False)))`. The registry is global and keyed by the model's `provider:identifier` (our Databricks model resolves to `openai:databricks-gpt-oss-120b`); the key is computed with the private `deepagents._models` helpers, so a test pins it for both the Databricks model and the test fake. `scripts/list_agent_tools.py` prints every agent's tools and fails if any sub-agent has a write tool.
+
+**Structured output via `ToolStrategy`, with a prompt that says to finish with the tool call.**
+Why: provider-native JSON-schema mode fails with gpt-oss on Databricks (the reasoning content block breaks parsing; tested). `ToolStrategy` sends `tool_choice: required`, which Databricks receives but does not enforce for gpt-oss: in the first live batch all 5 sub-agent runs wrote the verdict as JSON text and `structured_response` stayed empty. After adding "Finish by calling the `EligibilityVerdict` tool" to the prompt, 5 of 5 used the tool call.
+
+**Two guards for gpt-oss failure modes (`harness/guards.py`), beyond the M4 plan.**
+- `NudgeEmptyTurn` (main agent): one live run ended with a reasoning-only turn ("Let's call task.") and no tool call or text, so the loop stopped. The guard sends the model back, at most 2 times per user turn.
+- `StructuredFromText` (sub-agent): if the verdict comes back as text, it is accepted only if it validates against `EligibilityVerdict`; otherwise one nudge asks for the tool call.
+Both nudges are HumanMessages named `harness-nudge`, visible in traces. In the passing live batch neither guard fired; they are covered by offline tests that reproduce each failure with the fake model.
+Alternative: a deterministic `CompiledSubAgent` (no LLM) for eligibility. Removes the copying risk entirely but no longer exercises an LLM sub-agent; worth revisiting if verdict mismatches appear.
+
+**Live check of verdict faithfulness.**
+`test_verdict_matches_ground_truth` invokes the compiled sub-agent for E01, E02, E03, E04 and E12 and requires its codes to equal `check_fe_eligibility` exactly: 5 of 5 passed (2026-10-17).
+
 ## Open
 
 - deepagents package vs plain LangGraph for the final system: take evidence from M5 to M7 to the supervisor.

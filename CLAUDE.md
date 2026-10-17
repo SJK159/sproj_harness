@@ -71,10 +71,12 @@ seed/agent_rules.md         standing rules, mounted read-only at /rules/agent_ru
 skills/force-enrollment/SKILL.md
 src/harness/
   agent.py                  create_deep_agent wiring
-  subagents.py              eligibility-checker definition
+  subagents.py              eligibility-checker definition + EligibilityVerdict schema
+  guards.py                 middleware for gpt-oss empty turns / verdict-as-text
+  introspect.py             tool map per agent (tests, scripts/list_agent_tools.py)
   context.py                runtime context schema (student_id, role)
   persistence.py            checkpointer + store + backend setup
-  tools/read_tools.py       get_my_profile, list_sections, check_my_eligibility, get_my_cases
+  tools/read_tools.py       get_my_profile, list_sections, check_my_eligibility (sub-agent); get_my_cases (main)
   tools/write_tools.py      submit_case, execute_enrollment, notify_student
   mock_zambeel/             sqlite schema, seed data, enroll()
   approvals.py              token mint / verify, instructor decision
@@ -83,6 +85,7 @@ src/harness/
   cli.py                    student chat loop
 scripts/approve.py          instructor approve/reject + resume thread
 scripts/seed.py             reset and seed data/harness.db
+scripts/list_agent_tools.py tools visible to each agent; fails if a sub-agent has a write tool
 tests/
 ```
 

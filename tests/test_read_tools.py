@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from fakes import call, scripted, tool_json
+from langchain.agents import create_agent
 
-from harness.agent import build_agent
 from harness.context import HarnessContext
 from harness.mock_zambeel.policy import ADVISORY_CODES, BLOCKING_CODES, RULE_LABELS
 from harness.tools.read_tools import READ_TOOLS
@@ -11,7 +11,9 @@ SKILL = Path("skills/force-enrollment/SKILL.md")
 
 
 def run(student, *calls, role="student"):
-    agent = build_agent(model=scripted(*calls))
+    # Since M4 the read tools live on the eligibility-checker sub-agent, so they are exercised
+    # through a bare agent that has exactly these tools.
+    agent = create_agent(model=scripted(*calls), tools=READ_TOOLS, context_schema=HarnessContext)
     return agent.invoke({"messages": [{"role": "user", "content": "hi"}]},
                         context=HarnessContext(student_id=student, role=role))
 

@@ -15,10 +15,10 @@ def invoke(model, student="S1"):
                                            context=HarnessContext(student_id=student))
 
 
-def test_agent_has_planner_read_tools_and_no_write_tools(seeded):
+def test_agent_has_planner_delegation_and_no_write_tools(seeded):
     names = set(build_agent(model=scripted()).get_graph().nodes["tools"].data.tools_by_name)
-    assert {"write_todos", "read_file", "get_my_profile", "list_sections",
-            "check_my_eligibility", "get_my_cases"} <= names
+    assert {"write_todos", "read_file", "task", "get_my_cases"} <= names
+    assert not {"get_my_profile", "list_sections", "check_my_eligibility"} & names  # on the sub-agent since M4
     assert not {"submit_case", "execute_enrollment", "notify_student"} & names
 
 
