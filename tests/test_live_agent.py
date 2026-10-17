@@ -86,3 +86,43 @@ def test_m6_live_answer_from_memory_in_a_new_thread(flow):
                           confirm=lambda s: False).reply
     text = re.sub(DASHES, "-", answer)
     assert "CS412" in text and re.search(r"enrol|complete|approv", text, re.IGNORECASE), text
+
+def _live_turn(flow, case_id, student, course, section, confirm):
+    from harness.clients import student_turn
+    from harness.config import get_chat_model
+
+    load_env()
+    model = get_chat_model()
+    text = f"Please submit a force-enrollment request for me for {course} section {section}."
+    return model, student_turn(flow.agent(model), case_id, student, text, confirm=confirm)
+
+
+def test_a2_live_reject(flow):
+    from case_helpers import enrollment_count
+
+    from harness.cases import get_case
+    from harness.clients import instructor_resume
+
+    model, turn = _live_turn(flow, "FE-live-a2", "S2", "CS360", "S1", confirm=lambda s: True)
+    assert turn.status == "waiting_for_instructor", turn.reply
+    done = instructor_resume(flow.agent(model), "FE-live-a2", "I1", "reject", reason="Room at capacity")
+    assert get_case(flow.db, "FE-live-a2")["state"] == "REJECTED"
+    assert enrollment_count(flow.db, "FE-live-a2") == 0
+    assert "capacity" in done.reply.lower(), done.reply
+
+
+def test_a6_live_student_declines(flow):
+    from case_helpers import notices
+
+    from harness.cases import get_case
+
+    _, turn = _live_turn(flow, "FE-live-a6", "S1", "CS412", "S1", confirm=lambda s: False)
+    assert turn.status == "answered"
+    assert get_case(flow.db, "FE-live-a6")["state"] == "CANCELLED"
+    assert notices(flow.db, "I1") == []
+
+
+def test_e03_live_ineligible_creates_no_case(flow):
+    _, turn = _live_turn(flow, "FE-live-e03", "S2", "CS412", "S1", confirm=lambda s: True)
+    assert flow.db.execute("SELECT COUNT(*) FROM cases").fetchone()[0] == 0
+    assert re.search(r"CS310|prerequisite", turn.reply, re.IGNORECASE), turn.reply

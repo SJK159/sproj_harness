@@ -30,6 +30,14 @@ from harness.notifications import notify
 OPEN_STATES = ("DRAFT", "AWAITING_CONFIRMATION", "SUBMITTED", "AWAITING_APPROVAL", "APPROVED", "EXECUTING")
 EXECUTOR = "execute_enrollment"
 
+# Student-side rules re-checked at execution: they can change between submission and approval (e.g. another
+# approved case added credits, scenario A8b). Seat / FE codes are not: FE_CAP_REACHED is enroll's own cap check,
+# and FE_NOT_ACCEPTED no longer applies once the instructor has approved this request.
+EXECUTION_RECHECK = frozenset({
+    "PREREQ_MISSING", "PREREQ_IN_PROGRESS", "CLASH", "CREDIT_LIMIT", "PROBATION",
+    "YEAR_RESTRICTION", "CGPA_BELOW_MIN", "ALREADY_ENROLLED", "NOT_OFFERED",
+})
+
 
 class WorkflowRefused(Exception):
     code = "REFUSED"
@@ -155,6 +163,14 @@ def _fail(conn: sqlite3.Connection, case: dict[str, Any], action: str, reason: s
 
 
 def _enroll_and_finish(conn: sqlite3.Connection, case: dict[str, Any]) -> dict[str, Any]:
+    already = conn.execute("SELECT 1 FROM enrollments WHERE idempotency_key = ?", (case["case_id"],)).fetchone()
+    if already is None:  # a crash retry whose enrollment exists skips the re-check and just completes
+        section = get_section(conn, case["offering_id"])
+        now = check_fe_eligibility(conn, case["student_id"], section["course_id"], section["section"])
+        failing = [c for c in now.blocking if c in EXECUTION_RECHECK]
+        if failing:
+            reasons = "; ".join(f"{c} ({RULE_LABELS[c]}): {now.reasons[c]}" for c in failing)
+            return _fail(conn, case, "NO_LONGER_ELIGIBLE", f"no longer eligible at execution: {reasons}")
     try:
         r = enroll(conn, case["student_id"], case["offering_id"], idempotency_key=case["case_id"])
     except ZambeelError as exc:  # FeCapReached included: the cap filled after approval (scenario A5)

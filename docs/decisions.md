@@ -240,8 +240,22 @@ The checkpointer (`data/checkpoints.db`) is short-term memory: one thread's full
 **Observed live (2026-10-17).**
 Live test passed first run. Two-process demo: S1's brand-new session answered "what happened with my last request?" with no tool calls, from the note (case FE-0f2144b5, CS412-S1, completed after I1 approved). S2's new session found no record.
 
+## 2026-10-17 (M7: UC-01 acceptance)
+
+**Execution re-checks the student-side rules before enrolling (closes the A8 open item; chosen with the team).**
+Why: rules can change between submission and approval; e.g. a second approved case pushes S1 to 21 credits (A8b). After the token verifies, `execute` re-runs `check_fe_eligibility` and fails the case on PREREQ_MISSING, PREREQ_IN_PROGRESS, CLASH, CREDIT_LIMIT, PROBATION, YEAR_RESTRICTION, CGPA_BELOW_MIN, ALREADY_ENROLLED or NOT_OFFERED. Not seat/FE codes: the cap is `enroll`'s own check, and the instructor's approval answers FE_NOT_ACCEPTED. A crash retry whose enrollment already exists skips the re-check.
+Alternative: trust the submission-time check plus the cap. Leaves A8b over the credit cap.
+
+**Acceptance = offline through the agent + a live subset (chosen with the team).**
+Why: offline runs (scripted model) prove the guarantees hold whatever the model does: every scenario A1-A9, A8b and E02-E14 goes through the agent, the student/instructor clients and the real gates. Live runs (A1, A2, A6, E03) show gpt-oss drives the main paths. Each live scenario was run once per report: evidence the path works, not a reliability measure.
+
+**Two whole-database checks back the objectives: `audit_gaps` (O-03) and `unauthorized_writes` (O-02).**
+They run after every acceptance test and on the demo DB (`scripts/check_integrity.py`). Mutation check (scratchpad, not committed): replacing the token check with one that accepts any token made all 4 A4 tests fail, and `unauthorized_writes` independently reported the resulting enrollment ("no consumed approval by the section owner").
+
+**Live finding: the agent asked "shall I submit?" in chat even when told to submit.**
+First live acceptance run: A1 and E03 passed; A2 and A6 failed because the model answered "Would you like me to submit it now?" instead of calling `submit_case` (the same behaviour seen in the M5/M6 demos). That is a double confirmation, since the system already asks the student at the `submit_case` pause. Fix: the system prompt now says not to ask in chat before calling `submit_case` (offer to submit only when the student asked about eligibility). Second run: 4/4 live passed. Tests were not changed.
+
 ## Open
 
 - deepagents package vs plain LangGraph for the final system: take evidence from M5 to M7 to the supervisor.
 - Whether the LangGraph checkpointer can replace the `WORKFLOW_CASE` table. Current answer: no, checkpoints are opaque and not queryable for status (UC-02) or RBAC, so the cases table stays the source of truth.
-- Should `enroll` re-check credits and clashes at execution, not only the FE cap? Scenario A8: if both of S1's parallel cases were approved, S1 would reach 21 credits (cap 20).

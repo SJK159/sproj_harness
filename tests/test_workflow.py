@@ -156,3 +156,14 @@ def test_a2_rejection_tells_the_student_who_and_why(db):
     assert notice["kind"] == "REJECTED" and "I1" in notice["message"] and "Room at capacity" in notice["message"]
     with pytest.raises(wf.WrongState):
         wf.execute(db, "FE-2", "S2")
+
+
+def test_execution_rechecks_student_rules(db):  # A8b, deterministic
+    awaiting_case(db, "FE-a", "S1", "CS412", "S1")
+    awaiting_case(db, "FE-b", "S1", "CS582", "S1")
+    decide(db, "FE-a", "I1", "APPROVE")
+    decide(db, "FE-b", "I3", "APPROVE")
+    assert wf.execute(db, "FE-a", "S1")["state"] == "COMPLETED"
+    out = wf.execute(db, "FE-b", "S1")
+    assert out["state"] == "FAILED" and "CREDIT_LIMIT" in out["reason"]
+    assert enrollment_count(db, "FE-b") == 0

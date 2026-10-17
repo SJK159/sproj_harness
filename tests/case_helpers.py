@@ -25,3 +25,9 @@ def enrollment_count(db, case_id):
 
 def thread(case_id):
     return {"configurable": {"thread_id": case_id}}
+
+
+# Every state of an approved, completed case, in order.
+FULL_PATH = [(None, "DRAFT"), ("DRAFT", "AWAITING_CONFIRMATION"), ("AWAITING_CONFIRMATION", "SUBMITTED"),
+             ("SUBMITTED", "AWAITING_APPROVAL"), ("AWAITING_APPROVAL", "APPROVED"),
+             ("APPROVED", "EXECUTING"), ("EXECUTING", "COMPLETED")]

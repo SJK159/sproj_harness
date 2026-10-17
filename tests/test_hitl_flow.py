@@ -4,7 +4,14 @@ import ast
 from pathlib import Path
 
 import pytest
-from case_helpers import audit_actions, audit_path, enrollment_count, notices, thread
+from case_helpers import (
+    FULL_PATH,
+    audit_actions,
+    audit_path,
+    enrollment_count,
+    notices,
+    thread,
+)
 from fakes import FakeToolCallingModel, call
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.types import Command
@@ -14,10 +21,6 @@ from harness.approvals import NotCourseOwner
 from harness.cases import get_case
 from harness.clients import instructor_resume, student_turn
 from harness.context import HarnessContext
-
-FULL_PATH = [(None, "DRAFT"), ("DRAFT", "AWAITING_CONFIRMATION"), ("AWAITING_CONFIRMATION", "SUBMITTED"),
-             ("SUBMITTED", "AWAITING_APPROVAL"), ("AWAITING_APPROVAL", "APPROVED"),
-             ("APPROVED", "EXECUTING"), ("EXECUTING", "COMPLETED")]
 
 
 def fake(*messages):

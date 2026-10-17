@@ -61,8 +61,10 @@ For every force-enrollment or eligibility request, work in this order:
 For case status questions, use `get_my_cases`.
 
 Submitting (only when the verdict says can_submit for a section and the student wants that section):
-5. Call `submit_case(course_id, section)`. The student is asked to confirm; if they decline or the request is
-   refused, the tool result says so: explain it and do not retry.
+5. Call `submit_case(course_id, section)`. Do not ask "shall I submit?" in chat first: the system itself asks the
+   student to confirm when you call it. If the student asked about eligibility without asking to submit, answer
+   and offer to submit instead. If they decline or the request is refused, the tool result says so: explain it
+   and do not retry.
 6. When `submit_case` returns state AWAITING_APPROVAL, call `execute_enrollment` on its own. It pauses until the
    instructor decides; the conversation may end there.
 7. When `execute_enrollment` returns (or you are told the instructor rejected the request), call `notify_student`

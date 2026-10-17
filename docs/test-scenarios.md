@@ -26,13 +26,13 @@ Implemented in `tests/test_fe_eligibility.py`. `can_submit` = no blocking code a
 | E14 | S6 → CS582-S1 | PROBATION, CGPA_BELOW_MIN (all codes, not just the first) | | no |
 
 Also tested: S2 → CS360-S1 is submittable (setup for A2 and A5); unknown student or course raises.
+E02-E14 are also run through the agent in the acceptance suite: no case is created and the student is never asked to confirm.
 
 ## Approval and execution scenarios
 
-Status after M5 (offline unless noted): A1 `test_hitl_flow::test_a1_a9...` + live `test_live_agent::test_a1_live...`;
-A2 `test_hitl_flow::test_a2...`; A3 `test_hitl_flow::test_a3...`; A4 `test_workflow::test_a4...` (4 variants);
-A5 `test_workflow::test_a5...` (deterministic core); A6 `test_hitl_flow::test_a6...`; A7 `test_workflow::test_a7...`
-(deterministic core); A8 not yet; A9 `test_hitl_flow::test_a1_a9...` (new connection) + manual two-process demo.
+Status after M7: every scenario below is an acceptance test in `tests/test_acceptance_uc01.py` (offline, through the
+agent, the clients and the real gates, with audit-gap and unauthorized-write checks after each test). Live runs:
+A1, A2, A6, E03 in `tests/test_live_agent.py`. Latest results: `docs/acceptance-report.md`.
 
 Implemented later, in the milestone shown. "Full audit trail" means one `audit_events` row per
 state transition: DRAFT → AWAITING_CONFIRMATION → SUBMITTED → AWAITING_APPROVAL → APPROVED →
@@ -75,7 +75,7 @@ EXECUTING → COMPLETED (or the branch shown).
 ### A8. Parallel cases (M5, M7)
 - Steps: S1 opens CS412-S1 and CS582-S1 at once (two threads, `thread_id = case_id`). I1 approves CS412-S1; I3 rejects CS582-S1.
 - Expected: CS412-S1 COMPLETED, CS582-S1 REJECTED; each resumes on its own thread; neither affects the other.
-- Open: if both were approved, S1 would reach 21 credits (cap 20). Execution re-checks only the FE cap, not credits or clashes. Decide whether `enroll` should re-check those too.
+- A8b (added in M7): if both are approved, the second execution fails: S1 would reach 21 credits (cap 20). Execution re-checks the student-side rules (credits, clash, prerequisites, probation, year/CGPA, already enrolled, offered) before enrolling.
 
 ### A9. Restart while waiting (M5, M7)
 - Steps: run A1 until AWAITING_APPROVAL; kill the process; start a new process; I1 approves via `scripts/approve.py`.
