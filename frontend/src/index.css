@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 250 249 246;
+  --surface: 255 255 255;
+  --sunk: 243 241 236;
+  --line: 229 226 219;
+  --ink: 30 35 41;
+  --ink2: 74 81 91;
+  --ink3: 104 110 119;
+  --navy: 31 58 95;
+  --accent: 42 127 142;
+  --accent-ink: 255 255 255;
+  --accent-soft: 226 240 242;
+  color-scheme: light;
+}
+.dark {
+  --bg: 17 22 28;
+  --surface: 24 30 38;
+  --sunk: 13 17 22;
+  --line: 44 52 63;
+  --ink: 229 233 237;
+  --ink2: 182 189 198;
+  --ink3: 142 150 160;
+  --navy: 172 196 226;
+  --accent: 98 182 196;
+  --accent-ink: 8 26 30;
+  --accent-soft: 24 52 58;
+  color-scheme: dark;
+}
+
+html, body, #root { height: 100%; }
+body {
+  @apply bg-canvas text-ink font-sans antialiased;
+  font-feature-settings: 'cv11', 'ss01';
+}
+:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; border-radius: 6px; }
+::selection { background: rgb(var(--accent) / 0.25); }
+
+.scroll-thin { scrollbar-width: thin; scrollbar-color: rgb(var(--line)) transparent; }
+
+.shimmer-text {
+  background: linear-gradient(90deg, rgb(var(--ink3)) 0%, rgb(var(--ink)) 45%, rgb(var(--ink3)) 90%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 1.8s linear infinite;
+}
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+.caret::after {
+  content: '';
+  display: inline-block;
+  width: 7px; height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  border-radius: 2px;
+  background: rgb(var(--accent));
+  animation: blink 1s steps(2, start) infinite;
+}
+@keyframes blink { to { visibility: hidden; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text { animation: none; color: rgb(var(--ink2)); background: none; }
+  .caret::after { animation: none; }
+  .animate-spin, .animate-pulse { animation-duration: 3s; }
+}

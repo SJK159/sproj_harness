@@ -91,6 +91,7 @@ src/harness/
   cases.py                  case state machine; transition() is the only state change
   cli.py                    student chat loop
 scripts/approve.py          instructor approve/reject + resume thread
+frontend/                   React chat UI (Claude Design); runs on its built-in mock until the HTTP API exists
 scripts/seed.py             reset and seed data/harness.db
 scripts/list_agent_tools.py tools visible to each agent; fails if a sub-agent has a write tool
 scripts/demo_compression.py live demo of summarization + offloading (demo thresholds)
