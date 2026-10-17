@@ -314,6 +314,13 @@ The frontend sends a claimed student or instructor id with each call, exactly li
 **Live check (2026-10-18, scratch database `data/m9-live/`).**
 S1 "submit CS412 section S1" ran with the real model: checker verdict → confirm card → confirm → AWAITING_APPROVAL. Reopening the chat rebuilt it from the checkpoint. I1 saw the case with the eligibility snapshot, approved it, and the resumed run streamed APPROVED → EXECUTING → COMPLETED. Results: one FORCE enrollment, a memory note, notices to I1 and S1, and `check_integrity.py` clean. S6 "CS582 section S1": verdict with PROBATION (FE-5) and CGPA_BELOW_MIN (FE-6), no case, no confirm card.
 
+## 2026-10-18 (after M9)
+
+**Two read tools: `list_offerings` (the term's catalogue) and `scan_my_fe_options` (every section, one check).**
+Why: in the web UI, "what courses are on offer?" and "which courses can I force enroll in?" got "I don't have a tool for that, name a course". `list_offerings` returns every section this term (title, credits, time, seats, full, FE accepted, FE slots left, restrictions); it holds no student data and is on both agents. `scan_my_fe_options` runs `check_fe_eligibility` for the signed-in student on every section and groups them (can_request, blocked with every code and rule label, register_normally, fe_not_accepted, already_enrolled). It is on the eligibility-checker only, so eligibility still has one path (M4); the main agent delegates "which courses can I…" with `task`, and the verdict uses course_id "ALL". A test checks, for S1-S9, that the scan gives the same answer as checking each section one by one.
+Alternative considered: let the checker loop `check_my_eligibility` over `list_offerings`. Rejected: 16 sections is 16+ model calls against a 10-call sub-agent cap, and each copy is a chance to drop a code.
+Live (S2, scratch database): the catalogue question used one `list_offerings` call; the scan answer named CS360-S1 and MATH120-S1, matching a direct check. The first scan answer summarized the blocked sections with "e.g."; the main prompt now asks for one line per blocked section with each reason and label, and the re-run listed all five with their labels.
+
 ## Open
 
 - deepagents package vs plain LangGraph for the final system: take evidence from M5 to M7 to the supervisor.

@@ -25,7 +25,7 @@ export function VerdictCard({ verdict, onAsk, disabled }: { verdict: Eligibility
   return (
     <motion.div {...cardMotion} className={card}>
       <div className="mb-3 flex items-center justify-between gap-2">
-        <div className="text-[13px] font-semibold text-navy">Eligibility check · {verdict.course_id}</div>
+        <div className="text-[13px] font-semibold text-navy">Eligibility check · {verdict.course_id === 'ALL' ? 'all courses' : verdict.course_id}</div>
         <span className="text-[11px] text-faint">by the eligibility checker</span>
       </div>
       {verdict.error && <p className="text-sm text-red-700 dark:text-red-300">{verdict.error}</p>}

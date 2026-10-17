@@ -28,13 +28,13 @@ from harness.memory import NOTES_PATH
 from harness.mock_zambeel import connect
 from harness.persistence import READ_ONLY, build_backend, open_store
 from harness.subagents import eligibility_checker
-from harness.tools.read_tools import get_my_cases, get_my_profile
+from harness.tools.read_tools import get_my_cases, get_my_profile, list_offerings
 from harness.tools.write_tools import WRITE_TOOLS
 
 # Eligibility checks live on the eligibility-checker sub-agent. The main agent keeps case status, the student's
 # own profile (credits, CGPA, completed courses; read-only, context-scoped) and is the only agent with write
 # tools (invariant 9).
-MAIN_TOOLS = [get_my_cases, get_my_profile, *WRITE_TOOLS]
+MAIN_TOOLS = [get_my_cases, get_my_profile, list_offerings, *WRITE_TOOLS]
 
 
 def _describe_submit(tool_call, state, runtime) -> str:
@@ -106,6 +106,12 @@ For every force-enrollment or eligibility request, work in this order:
    parentheses (e.g. "(FE-n (placeholder v0.1))"), and any open section it suggests. Mark the todos complete.
 For case status questions, use `get_my_cases`. For questions about the student's own record (credits this term,
 CGPA, year, completed courses), use `get_my_profile`; do not use it to decide eligibility.
+For "what courses are on offer?" (timetable, seats, which sections are full or take force enrollment), use
+`list_offerings`; it says nothing about this student's eligibility.
+For "which courses can I force enroll in?" with no course named, delegate to the `eligibility-checker` asking it to
+scan every section this term. Do not ask the student to name a course first. Answer with the sections they can
+request, then one line per blocked section naming each reason with its rule label (never "e.g." or "and others"),
+then the open sections they can register for normally.
 
 Submitting (only when the verdict says can_submit for a section and the student wants that section):
 5. Call `submit_case(course_id, section)`. Do not ask "shall I submit?" in chat first: the system itself asks the

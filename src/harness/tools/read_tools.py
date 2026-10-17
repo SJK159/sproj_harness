@@ -26,6 +26,34 @@ def _codes(codes: tuple[str, ...], reasons: dict[str, str]) -> list[dict[str, st
     return [{"code": c, "rule": RULE_LABELS[c], "reason": reasons[c]} for c in codes]
 
 
+def _section_row(conn: Any, offering_id: str) -> dict[str, Any]:
+    """One section as the student sees it in the timetable: time, seats, force-enrollment terms, restrictions."""
+    s = get_section(conn, offering_id)
+    slots = conn.execute(
+        'SELECT day, start, "end" FROM offering_slots WHERE offering_id = ? ORDER BY start, day', (offering_id,)
+    ).fetchall()
+    return {
+        "offering_id": offering_id,
+        "section": s["section"],
+        "time": " ".join(f"{r['day']} {r['start']}-{r['end']}" for r in slots),
+        "capacity": s["capacity"],
+        "available": s["available"],
+        "fe_accepted": s["fe_allowed"],
+        "fe_slots_left": max(s["fe_cap"] - s["fe_used"], 0) if s["fe_allowed"] else 0,
+        "min_year": s["min_year"],
+        "min_cgpa": s["min_cgpa"],
+    }
+
+
+def _term_offerings(conn: Any) -> list[Any]:
+    return conn.execute(
+        """SELECT o.offering_id, o.course_id, o.section, o.instructor_id, c.title, c.credits
+           FROM offerings o JOIN courses c ON c.course_id = o.course_id
+           WHERE o.term = ? ORDER BY o.course_id, o.section""",
+        (CURRENT_TERM,),
+    ).fetchall()
+
+
 @tool
 def get_my_profile(runtime: ToolRuntime[HarnessContext]) -> str:
     """Return the signed-in student's profile: year, CGPA, probation status, completed courses,
@@ -49,24 +77,7 @@ def list_sections(course_id: str, runtime: ToolRuntime[HarnessContext]) -> str:
                 "SELECT offering_id FROM offerings WHERE course_id = ? AND term = ? ORDER BY section",
                 (course_id, CURRENT_TERM),
             ).fetchall()
-            sections = []
-            for (offering_id,) in rows:
-                s = get_section(conn, offering_id)
-                slots = conn.execute(
-                    'SELECT day, start, "end" FROM offering_slots WHERE offering_id = ? ORDER BY start, day',
-                    (offering_id,),
-                ).fetchall()
-                sections.append({
-                    "offering_id": offering_id,
-                    "section": s["section"],
-                    "time": " ".join(f"{r['day']} {r['start']}-{r['end']}" for r in slots),
-                    "capacity": s["capacity"],
-                    "available": s["available"],
-                    "fe_accepted": s["fe_allowed"],
-                    "fe_slots_left": max(s["fe_cap"] - s["fe_used"], 0) if s["fe_allowed"] else 0,
-                    "min_year": s["min_year"],
-                    "min_cgpa": s["min_cgpa"],
-                })
+            sections = [_section_row(conn, offering_id) for (offering_id,) in rows]
         return {"course_id": course_id, "term": CURRENT_TERM, "sections": sections}
     return run_json(go)
 
@@ -106,4 +117,50 @@ def get_my_cases(runtime: ToolRuntime[HarnessContext]) -> str:
     return run_json(go)
 
 
-READ_TOOLS = [get_my_profile, list_sections, check_my_eligibility, get_my_cases]
+@tool
+def list_offerings(runtime: ToolRuntime[HarnessContext]) -> str:
+    """List every course section offered this term: course, title, credits, section, instructor, time, seats left,
+    whether it is full, whether the instructor accepts force enrollment, force-enrollment slots left, and any
+    year/CGPA restriction. The catalogue is the same for every student; it says nothing about eligibility."""
+    def go() -> dict[str, Any]:
+        student_id_of(runtime)
+        with closing(connect()) as conn:
+            sections = []
+            for r in _term_offerings(conn):
+                row = _section_row(conn, r["offering_id"])
+                sections.append({"course_id": r["course_id"], "title": r["title"], "credits": r["credits"],
+                                 "instructor_id": r["instructor_id"], **row, "full": row["available"] == 0})
+        return {"term": CURRENT_TERM, "sections": sections}
+    return run_json(go)
+
+
+@tool
+def scan_my_fe_options(runtime: ToolRuntime[HarnessContext]) -> str:
+    """Check the signed-in student against every section offered this term (the same check as
+    check_my_eligibility, run on each one) and group the sections: can_request (force enrollment may be requested),
+    blocked (every failing rule with its label), register_normally (open seats, no force enrollment needed),
+    fe_not_accepted (full, and the instructor takes no force enrollment) and already_enrolled."""
+    def go() -> dict[str, Any]:
+        student_id = student_id_of(runtime)
+        out: dict[str, Any] = {"term": CURRENT_TERM, "can_request": [], "blocked": [], "register_normally": [],
+                               "fe_not_accepted": [], "already_enrolled": []}
+        with closing(connect()) as conn:
+            for r in _term_offerings(conn):
+                e = check_fe_eligibility(conn, student_id, r["course_id"], r["section"])
+                entry = {"offering_id": r["offering_id"], "title": r["title"]}
+                if "ALREADY_ENROLLED" in e.blocking:
+                    out["already_enrolled"].append(r["offering_id"])
+                elif "FE_NOT_ACCEPTED" in e.blocking:
+                    out["fe_not_accepted"].append(r["offering_id"])
+                elif e.blocking:
+                    out["blocked"].append({**entry, "blocking": _codes(e.blocking, e.reasons)})
+                elif e.can_submit:
+                    out["can_request"].append({**entry, "advisory": _codes(e.advisory, e.reasons),
+                                               "fe_slots_left": _section_row(conn, r["offering_id"])["fe_slots_left"]})
+                else:  # eligible, with open seats: no force enrollment needed
+                    out["register_normally"].append(r["offering_id"])
+        return out
+    return run_json(go)
+
+
+READ_TOOLS = [get_my_profile, list_offerings, list_sections, check_my_eligibility, scan_my_fe_options, get_my_cases]

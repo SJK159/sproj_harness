@@ -16,7 +16,13 @@ from pydantic import BaseModel, Field
 
 from harness.guards import StructuredFromText
 from harness.tools.ask import ask_student
-from harness.tools.read_tools import check_my_eligibility, get_my_profile, list_sections
+from harness.tools.read_tools import (
+    check_my_eligibility,
+    get_my_profile,
+    list_offerings,
+    list_sections,
+    scan_my_fe_options,
+)
 
 
 class Reason(BaseModel):
@@ -46,6 +52,9 @@ You check force-enrollment eligibility for the signed-in student and report a st
 
 1. If the task names a course and section, call `check_my_eligibility` for that section.
    If it names only a course, call `list_sections` and then `check_my_eligibility` for every section listed.
+   If it asks which courses or sections the student can request (no course named), call `scan_my_fe_options`
+   once. Report every section in `can_request` and in `blocked` as a section of the verdict (copy its codes), set
+   course_id to "ALL", and mention the open sections (`register_normally`) in the summary.
 2. Finish by calling the `EligibilityVerdict` tool (never write the verdict as text). Fill it from the tool results only. Copy every code, rule label and reason exactly as
    returned, in the same order. Never add, drop, merge or rephrase a code. Use empty lists when there are none.
 3. If a tool returns an error, put it in `error` and return the sections you could check.
@@ -76,7 +85,7 @@ def eligibility_checker(backend: BackendProtocol, model: BaseChatModel | None = 
             "and, if known, the section."
         ),
         "system_prompt": ELIGIBILITY_PROMPT,
-        "tools": [get_my_profile, list_sections, check_my_eligibility, ask_student],
+        "tools": [get_my_profile, list_offerings, list_sections, check_my_eligibility, scan_my_fe_options, ask_student],
         "interrupt_on": SUBAGENT_INTERRUPT_ON,
         # Replaces the default file tools (which include write_file, edit_file, delete, execute).
         # read_file is the minimum: FilesystemMiddleware refuses a tool list without it.

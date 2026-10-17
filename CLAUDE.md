@@ -77,7 +77,7 @@ src/harness/
   introspect.py             tool map per agent (tests, scripts/list_agent_tools.py)
   context.py                runtime context schema (student_id, role)
   persistence.py            checkpointer + store + backend setup
-  tools/read_tools.py       list_sections, check_my_eligibility (sub-agent); get_my_profile (both); get_my_cases (main)
+  tools/read_tools.py       list_sections, check_my_eligibility, scan_my_fe_options (sub-agent); get_my_profile, list_offerings (both); get_my_cases (main)
   tools/write_tools.py      submit_case, execute_enrollment, notify_student (thin wrappers)
   tools/common.py           student from context, case from thread, JSON errors
   tools/ask.py              ask_student (checker's clarifying question, answered via `respond`)
