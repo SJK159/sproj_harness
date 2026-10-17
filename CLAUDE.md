@@ -126,6 +126,7 @@ uv run python scripts/approve.py --pending --instructor I1
 RUN_LIVE=1 uv run pytest -m live          # real-model tests (use Databricks quota)
 uv run python scripts/check_integrity.py  # O-02 / O-03 checks on data/harness.db
 uv run python scripts/acceptance_report.py [--live]   # writes docs/acceptance-report.md
+uv run --with reportlab python scripts/make_explainer.py   # rebuilds docs/LUMS-Orchestrator-Explained.pdf
 uv run python scripts/approve.py --case <case_id> --instructor I1 --decision approve|reject [--reason "..."]
 ```
 
