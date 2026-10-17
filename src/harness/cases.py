@@ -10,9 +10,9 @@ from harness.audit import write_event
 TRANSITIONS: dict[str, frozenset[str]] = {
     "DRAFT": frozenset({"AWAITING_CONFIRMATION", "CANCELLED"}),
     "AWAITING_CONFIRMATION": frozenset({"SUBMITTED", "CANCELLED"}),
-    "SUBMITTED": frozenset({"AWAITING_APPROVAL"}),
+    "SUBMITTED": frozenset({"AWAITING_APPROVAL", "CANCELLED"}),  # CANCELLED: no longer eligible at submit
     "AWAITING_APPROVAL": frozenset({"APPROVED", "REJECTED"}),
-    "APPROVED": frozenset({"EXECUTING"}),
+    "APPROVED": frozenset({"EXECUTING", "FAILED"}),  # FAILED: approval token refused at execution (flagged)
     "EXECUTING": frozenset({"COMPLETED", "FAILED"}),
     "REJECTED": frozenset(),
     "COMPLETED": frozenset(),
@@ -34,6 +34,17 @@ def get_case(conn: sqlite3.Connection, case_id: str) -> dict[str, Any]:
     if row is None:
         raise UnknownCase(f"No case {case_id!r}.")
     return dict(row)
+
+
+def create_case(conn: sqlite3.Connection, case_id: str, student_id: str, offering_id: str, actor: str) -> None:
+    """Insert a case in DRAFT and write its audit row. Never commits (caller's transaction)."""
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    conn.execute(
+        """INSERT INTO cases (case_id, student_id, offering_id, type, state, created_at, updated_at)
+           VALUES (?, ?, ?, 'FORCE_ENROLLMENT', 'DRAFT', ?, ?)""",
+        (case_id, student_id, offering_id, now, now),
+    )
+    write_event(conn, case_id, actor, "CREATE", None, "DRAFT", {"offering_id": offering_id})
 
 
 def transition(

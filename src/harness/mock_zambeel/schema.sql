@@ -84,6 +84,7 @@ CREATE TABLE cases (
                     'DRAFT', 'AWAITING_CONFIRMATION', 'SUBMITTED', 'AWAITING_APPROVAL',
                     'APPROVED', 'REJECTED', 'EXECUTING', 'COMPLETED', 'FAILED', 'CANCELLED')),
     next_action TEXT,
+    flag        TEXT,          -- non-NULL = needs human review (e.g. approval token refused); the reason
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
@@ -110,6 +111,17 @@ CREATE TABLE audit_events (
     to_state   TEXT,
     timestamp  TEXT NOT NULL,
     detail     TEXT
+);
+
+-- Messages to students and instructors (stand-in for email / portal notices).
+CREATE TABLE notifications (
+    notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipient_id    TEXT NOT NULL,
+    case_id         TEXT,
+    kind            TEXT NOT NULL,   -- APPROVAL_REQUESTED, REJECTED, COMPLETED, FAILED, AGENT_MESSAGE
+    message         TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    read_at         TEXT
 );
 
 -- FR-10: the audit log is append-only.

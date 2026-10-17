@@ -192,9 +192,38 @@ Alternative: a deterministic `CompiledSubAgent` (no LLM) for eligibility. Remove
 **Live check of verdict faithfulness.**
 `test_verdict_matches_ground_truth` invokes the compiled sub-agent for E01, E02, E03, E04 and E12 and requires its codes to equal `check_fe_eligibility` exactly: 5 of 5 passed (2026-10-17).
 
+## 2026-10-17 (M5: human in the loop and durable state)
+
+**Each CLI session's thread id is the case id it may create (`FE-<8 hex>`).**
+Why: invariant 6 (`thread_id = case_id`) needs the case id before the agent pauses, but ineligible requests must never create a case row. So the session reserves the id; the `cases` row appears only when the student client opens a case. One case per session; a second request in the same session is refused ("start a new session"), and the same course while a case is open returns that case (A7).
+
+**The student client creates the case and records the student's yes/no (chosen with the team).**
+Why: with `interrupt_on`, a declined `submit_case` never runs, so the tool could not record CANCELLED (A6). The client (`clients.student_turn`) handles the `submit_case` pause: `open_case` (re-checks eligibility; ineligible = no case, and the agent is told why), asks the student, `record_confirmation` (SUBMITTED or CANCELLED), then resumes. This mirrors `approve.py` on the instructor side: deterministic code records a person's explicit decision, then resumes the agent. `submit_case` refuses unless the case is SUBMITTED, re-checks eligibility (invariant 10), routes to the instructor and notifies them once.
+Alternatives: the tool creates the case after "yes" (a decline then needs a second code path to write CANCELLED), or a separate `create_case` tool (one more model step to get wrong).
+
+**The execution gate lives in `workflow.execute`, keyed on the case state.**
+COMPLETED returns the existing result; EXECUTING (crash after the token was used) finishes with the idempotent `enroll`; APPROVED verifies and consumes the token; any other state is refused and audited (`EXECUTE_REFUSED`) without changing anything. Tested: resuming the thread with "approve" without `approve.py` writes nothing.
+
+**Token use and APPROVED -> EXECUTING commit in one transaction (`verify_and_consume(on_consumed=...)`).**
+Why: if they were separate commits, a crash between them would leave an APPROVED case whose token is already used, indistinguishable from a replayed token. Now "token used" implies "case executing", so a consumed token on an APPROVED case is always refused as REUSED (A4), and an EXECUTING case can safely finish after a crash (tested).
+
+**A refused token ends the case FAILED with `cases.flag` set (closes the M2/A4 open item).**
+Why: no write happened, the case cannot be re-approved from APPROVED, and the flag (reason text) makes it findable for review. Needed two transitions not in CLAUDE.md's diagram: `APPROVED -> FAILED` and `SUBMITTED -> CANCELLED` (ineligible at submit); both added there.
+
+**System notifications are written by the deterministic code; the agent's `notify_student` adds a message on top.**
+Why: tests and students must not depend on the model remembering to notify. Instructor: APPROVAL_REQUESTED on routing. Student: REJECTED (with instructor and reason), COMPLETED, FAILED. The CLI shows unread notices at session start.
+
+**`decide` (record decision + rejection notice) lives in `approvals.py`, not `workflow.py`.**
+Why: nothing the agent's tools import can reach token minting. A test parses `harness/tools/*.py` and `workflow.py` and fails if they import or reference `mint_token`, `record_decision` or `decide` (invariant 2).
+
+**Every resume passes the runtime context again.**
+Why: LangGraph checkpoints the graph state, not the `context` argument. `instructor_resume` reads the student id from the case row and passes `HarnessContext(student_id)`; without it the tools would have no student.
+
+**Observed live (2026-10-17).**
+Live A1 test passed first run. In the two-process demo, "Please force enroll me in CS412 section S1" made the agent show the verdict (including the open CS412-S2 alternative) and ask before submitting; the follow-up "Yes, please submit" led to `submit_case` -> confirmation -> `execute_enrollment` -> process exit; a separate `approve.py` process resumed the thread from `data/checkpoints.db` and completed the case. Audit trail: 9 rows, each transition once, I2's refused attempt recorded.
+
 ## Open
 
 - deepagents package vs plain LangGraph for the final system: take evidence from M5 to M7 to the supervisor.
 - Whether the LangGraph checkpointer can replace the `WORKFLOW_CASE` table. Current answer: no, checkpoints are opaque and not queryable for status (UC-02) or RBAC, so the cases table stays the source of truth.
 - Should `enroll` re-check credits and clashes at execution, not only the FE cap? Scenario A8: if both of S1's parallel cases were approved, S1 would reach 21 credits (cap 20).
-- "Case flagged for review" (scenario A4) is not designed yet: decide in M5 whether a refused token moves the case to FAILED, sets a flag column, or both.

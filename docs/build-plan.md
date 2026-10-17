@@ -59,6 +59,7 @@ Done when: the trace shows a `task` call to the sub-agent, and the main agent's 
 - `scripts/approve.py`: checks instructor ownership, mints token, records approval or rejection, resumes the thread with `Command(resume={"decisions": [...]})`.
 - Side effects must not repeat when a node or tool reruns on resume. Check this explicitly.
 - `submit_case` reruns `check_fe_eligibility` and refuses unless `can_submit` (CLAUDE.md invariant 10). `execute_enrollment` maps `FeCapReached` to FAILED.
+- As built: the student client (`clients.student_turn`, used by the CLI) creates the case and records the student's yes/no at the `submit_case` pause, mirroring `approve.py` for the instructor. The rules are in `workflow.py`.
 
 Done when: scenarios A1, A2, A6 and A9 in `docs/test-scenarios.md` pass (A9: run S1 to the instructor pause, kill the process, run `approve.py`, and the case completes with one enrollment and a full audit trail).
 

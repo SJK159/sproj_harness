@@ -29,6 +29,11 @@ Also tested: S2 → CS360-S1 is submittable (setup for A2 and A5); unknown stude
 
 ## Approval and execution scenarios
 
+Status after M5 (offline unless noted): A1 `test_hitl_flow::test_a1_a9...` + live `test_live_agent::test_a1_live...`;
+A2 `test_hitl_flow::test_a2...`; A3 `test_hitl_flow::test_a3...`; A4 `test_workflow::test_a4...` (4 variants);
+A5 `test_workflow::test_a5...` (deterministic core); A6 `test_hitl_flow::test_a6...`; A7 `test_workflow::test_a7...`
+(deterministic core); A8 not yet; A9 `test_hitl_flow::test_a1_a9...` (new connection) + manual two-process demo.
+
 Implemented later, in the milestone shown. "Full audit trail" means one `audit_events` row per
 state transition: DRAFT → AWAITING_CONFIRMATION → SUBMITTED → AWAITING_APPROVAL → APPROVED →
 EXECUTING → COMPLETED (or the branch shown).

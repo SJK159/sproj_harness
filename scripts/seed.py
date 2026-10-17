@@ -12,7 +12,7 @@ from harness.mock_zambeel import db_path, reset_db, seed
 
 TABLES = [
     "students", "instructors", "courses", "prerequisites", "transcript",
-    "offerings", "offering_slots", "enrollments", "cases", "approvals", "audit_events",
+    "offerings", "offering_slots", "enrollments", "cases", "approvals", "audit_events", "notifications",
 ]
 
 

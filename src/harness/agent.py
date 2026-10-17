@@ -21,9 +21,29 @@ from harness.guards import NudgeEmptyTurn
 from harness.persistence import READ_ONLY, build_backend
 from harness.subagents import eligibility_checker
 from harness.tools.read_tools import get_my_cases
+from harness.tools.write_tools import WRITE_TOOLS
 
-# Eligibility tools live on the eligibility-checker sub-agent; the main agent keeps case status.
-MAIN_TOOLS = [get_my_cases]
+# Eligibility tools live on the eligibility-checker sub-agent. The main agent keeps case status and is
+# the only agent with write tools (invariant 9).
+MAIN_TOOLS = [get_my_cases, *WRITE_TOOLS]
+
+
+def _describe_submit(tool_call, state, runtime) -> str:
+    a = tool_call["args"]
+    return f"Submit a force-enrollment request for {a.get('course_id')}-{a.get('section')}? The instructor will be asked to approve it."
+
+
+def _describe_execute(tool_call, state, runtime) -> str:
+    return "Waiting for the section's instructor to approve or reject this force-enrollment request."
+
+
+# Who is asked before a write tool runs. approve/reject only: `edit` would let the resumer rewrite the
+# tool's arguments and `respond` would skip the tool with a fake result (invariant 8). This pause is how
+# the human is asked; the gates in harness.workflow are what make the write safe.
+INTERRUPT_ON = {
+    "submit_case": {"allowed_decisions": ["approve", "reject"], "description": _describe_submit},
+    "execute_enrollment": {"allowed_decisions": ["approve", "reject"], "description": _describe_execute},
+}
 
 SYSTEM_PROMPT = """\
 You are the LUMS Process Orchestrator assistant. You help one signed-in student with force enrollment
@@ -38,7 +58,14 @@ For every force-enrollment or eligibility request, work in this order:
    parentheses (e.g. "(FE-n (placeholder v0.1))"), and any open section it suggests. Mark the todos complete.
 For case status questions, use `get_my_cases`.
 
-Submitting a force-enrollment request is not available yet in this version; say so if the student asks to submit.
+Submitting (only when the verdict says can_submit for a section and the student wants that section):
+5. Call `submit_case(course_id, section)`. The student is asked to confirm; if they decline or the request is
+   refused, the tool result says so: explain it and do not retry.
+6. When `submit_case` returns state AWAITING_APPROVAL, call `execute_enrollment` on its own. It pauses until the
+   instructor decides; the conversation may end there.
+7. When `execute_enrollment` returns (or you are told the instructor rejected the request), call `notify_student`
+   with a one-sentence outcome, then answer. Never claim an enrollment unless `execute_enrollment` returned COMPLETED.
+One request per session: for a second course, the student starts a new session.
 """
 
 RULES_PROMPT = """\
@@ -75,6 +102,7 @@ def build_agent(
     return create_deep_agent(
         model=model,
         tools=MAIN_TOOLS,
+        interrupt_on=INTERRUPT_ON,
         subagents=[eligibility_checker(backend, model=subagent_model)],
         system_prompt=SYSTEM_PROMPT,
         middleware=[

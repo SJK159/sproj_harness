@@ -32,3 +32,18 @@ def seeded(db, tmp_path, monkeypatch):
     """Point the agent's tools (which open their own connections) at the seeded test DB."""
     monkeypatch.setenv("HARNESS_DB", str(tmp_path / "harness.db"))
     return db
+
+@pytest.fixture
+def flow(seeded, tmp_path, secret):
+    """Seeded DB + a checkpoint file. Each agent() call opens a NEW SqliteSaver connection,
+    so a resume after a pause runs as if in a fresh process."""
+    from harness.agent import build_agent
+    from harness.persistence import open_checkpointer
+
+    class Flow:
+        db = seeded
+
+        def agent(self, model):
+            return build_agent(model=model, checkpointer=open_checkpointer(tmp_path / "checkpoints.db"))
+
+    return Flow()

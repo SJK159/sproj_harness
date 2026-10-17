@@ -33,7 +33,7 @@ Do not build these even if they seem helpful: RAG or a vector store, real Zambee
 3. Idempotency: the mock enrollment call uses case_id as the idempotency key. A retry returns the existing result and never enrolls twice. `enroll` re-checks the section's FE cap at execution time, so an approved case can still end FAILED if the cap filled after approval.
 4. Every case state transition writes an `audit_events` row: case_id, actor, action, from_state, to_state, timestamp, detail.
 5. A student only ever sees their own data and cases. Tools read student_id from the runtime context, not from arguments the LLM fills in.
-6. One LangGraph thread per case: `thread_id = case_id`. The instructor's resume targets that thread.
+6. One LangGraph thread per case: `thread_id = case_id`. Each CLI session's thread id (`FE-<hex>`) is the case id it may create; one case per session. The instructor's resume targets that thread.
 7. No secrets, real student data, or LUMS credentials in code, logs or commits. Synthetic data only.
 8. `submit_case` and `execute_enrollment` are gated with `allowed_decisions: ["approve", "reject"]` only. Never allow `edit` (it lets the resumer rewrite tool args such as case_id) or `respond` (it skips the tool and fakes a success result).
 9. Write tools (`submit_case`, `execute_enrollment`, `notify_student`) exist only on the main agent. No sub-agent may get them, including the `general-purpose` sub-agent deepagents adds automatically. Disable `general-purpose` unless M4 shows a reason to keep it.
@@ -44,6 +44,7 @@ Do not build these even if they seem helpful: RAG or a vector store, real Zambee
 
 `DRAFT -> AWAITING_CONFIRMATION -> SUBMITTED -> AWAITING_APPROVAL -> APPROVED | REJECTED`, then `APPROVED -> EXECUTING -> COMPLETED | FAILED`.
 Student declines at confirmation -> `CANCELLED`. Ineligible requests never create a case. Rejection never leads to execution.
+Added in M5: `SUBMITTED -> CANCELLED` (no longer eligible when submit_case re-checks) and `APPROVED -> FAILED` (approval token refused at execution; the case is flagged). `harness.cases.TRANSITIONS` is the source of truth.
 
 ## Stack
 
@@ -77,7 +78,11 @@ src/harness/
   context.py                runtime context schema (student_id, role)
   persistence.py            checkpointer + store + backend setup
   tools/read_tools.py       get_my_profile, list_sections, check_my_eligibility (sub-agent); get_my_cases (main)
-  tools/write_tools.py      submit_case, execute_enrollment, notify_student
+  tools/write_tools.py      submit_case, execute_enrollment, notify_student (thin wrappers)
+  tools/common.py           student from context, case from thread, JSON errors
+  workflow.py               deterministic case steps and the execution gate
+  clients.py                student confirmation + instructor decision, resume paused threads
+  notifications.py          notices to students / instructors
   mock_zambeel/             sqlite schema, seed data, enroll()
   approvals.py              token mint / verify, instructor decision
   audit.py                  audit_events writer
@@ -113,7 +118,8 @@ Term `2026FA`. Keep IDs stable; tests rely on them. Full data: `src/harness/mock
 uv sync
 uv run pytest
 uv run python scripts/seed.py --reset
-uv run python -m harness.cli --student S1 [--message "..."]
+uv run python -m harness.cli --student S1 [--message "..."] [--yes|--no] [--session FE-...]
+uv run python scripts/approve.py --pending --instructor I1
 RUN_LIVE=1 uv run pytest -m live          # real-model tests (use Databricks quota)
 uv run python scripts/approve.py --case <case_id> --instructor I1 --decision approve|reject [--reason "..."]
 ```

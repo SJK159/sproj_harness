@@ -51,3 +51,20 @@ def test_verdict_matches_ground_truth(seeded, row, student, course, section):
     assert got.can_submit == truth.can_submit
     assert [b.code for b in got.blocking] == list(truth.blocking)
     assert [a.code for a in got.advisory] == list(truth.advisory)
+
+def test_a1_live_submit_then_approve(flow):
+    """A1 with the real model: student submits and confirms, instructor approves in a fresh agent."""
+    from case_helpers import enrollment_count
+
+    from harness.cases import get_case
+    from harness.clients import instructor_resume, student_turn
+    from harness.config import get_chat_model
+
+    load_env()
+    model = get_chat_model()
+    turn = student_turn(flow.agent(model), "FE-live-a1", "S1",
+                        "Please submit a force-enrollment request for me for CS412 section S1.", confirm=lambda s: True)
+    assert turn.status == "waiting_for_instructor", turn.reply
+    instructor_resume(flow.agent(model), "FE-live-a1", "I1", "approve")
+    assert get_case(flow.db, "FE-live-a1")["state"] == "COMPLETED"
+    assert enrollment_count(flow.db, "FE-live-a1") == 1

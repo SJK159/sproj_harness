@@ -49,9 +49,10 @@ approval. `check_my_eligibility` returns a code for each rule; the label to cite
 3. Mention any suggested open section (FE-1) as an option.
 4. Keep it short and plain. Do not invent rules that are not listed here.
 
-## Process (for context)
-1. The student confirms the request; a case is created.
-2. The section's instructor approves or rejects it.
-3. On approval the enrollment is executed and the student is notified.
-
-Submission is not available yet in this version of the assistant.
+## Process
+1. The student asks for a section that is full and passes every rule above.
+2. `submit_case`: the student confirms; a case is created and routed to the section's instructor.
+3. `execute_enrollment`: waits for the instructor. On approval the enrollment is made only if the signed
+   approval verifies and a force-enrollment slot is still free; otherwise the case ends FAILED with the reason.
+4. The student is notified of the outcome (approved and enrolled, rejected with the reason, or failed).
+One request per session; a request for the same course while one is open returns the open case.

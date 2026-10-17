@@ -16,12 +16,14 @@ import json
 import os
 import secrets
 import sqlite3
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from harness.audit import write_event
 from harness.cases import InvalidTransition, get_case, transition
 from harness.mock_zambeel import get_section
+from harness.notifications import notify
 
 TOKEN_VERSION = "v1"
 TOKEN_TTL = timedelta(hours=24)
@@ -169,10 +171,13 @@ def verify_and_consume(
     *,
     actor: str = "system",
     now: datetime | None = None,
+    on_consumed: Callable[[sqlite3.Connection], None] | None = None,
 ) -> dict[str, Any]:
     """Verify an approval token for `case_id` and mark it used. Raises a TokenRefused subclass otherwise.
 
     Single use is enforced by a conditional UPDATE: of two concurrent calls, only one changes the row.
+    `on_consumed(conn)` runs inside the same transaction as the consume, so a caller can make
+    "token used" and its own state change (e.g. APPROVED -> EXECUTING) commit together or not at all.
     Every outcome is audited.
     """
     _secret()
@@ -194,8 +199,33 @@ def verify_and_consume(
                 raise TokenReused("Token has already been used.")
             write_event(conn, case_id, actor, "TOKEN_CONSUMED",
                         detail={"approval_id": row["approval_id"], "instructor_id": row["instructor_id"]})
+            if on_consumed is not None:
+                on_consumed(conn)
         return {"approval_id": row["approval_id"], "case_id": case_id, "instructor_id": row["instructor_id"]}
     except TokenRefused as refused:
         with conn:
             write_event(conn, case_id, actor, "TOKEN_REFUSED", detail={"code": refused.code, "reason": str(refused)})
         raise
+
+
+def decide(
+    conn: sqlite3.Connection,
+    case_id: str,
+    instructor_id: str,
+    decision: str,
+    reason: str | None = None,
+    *,
+    now: datetime | None = None,
+) -> str | None:
+    """Instructor side (scripts/approve.py): record the decision and, on rejection, tell the student.
+
+    Returns the approval token on APPROVE, None on REJECT. Raises NotCourseOwner / InvalidTransition.
+    """
+    token = record_decision(conn, case_id, instructor_id, decision, reason, now=now)
+    if decision == "REJECT":
+        case = get_case(conn, case_id)
+        with conn:
+            notify(conn, case["student_id"], case_id, "REJECTED",
+                   f"Your force-enrollment request {case_id} for {case['offering_id']} was rejected by "
+                   f"instructor {instructor_id}. Reason: {reason or 'none given'}.")
+    return token
