@@ -7,6 +7,7 @@
 Facts come from the repo (CLAUDE.md, docs/decisions.md, scripts/list_agent_tools.py); update them here when they change.
 """
 
+import itertools
 import sys
 
 from reportlab.lib import colors
@@ -121,8 +122,8 @@ def slide_infrastructure(c):
     # clients
     top = 448
     clients = [
-        ("Web UI", "React 18 + Vite + Tailwind (<font face='Courier'>frontend/</font>): chat, live thinking panel, "
-                   "case lane, instructor review screen"),
+        ("Web UI", ("React 18 + Vite + Tailwind (<font face='Courier'>frontend/</font>): chat, live thinking panel, "
+                   "case lane, instructor review screen")),
         ("Student CLI", "<font face='Courier'>harness.cli</font>: the same agent in a terminal, with a confirm prompt"),
         ("Instructor", "Approve or reject in the web view or with <font face='Courier'>scripts/approve.py</font>"),
     ]
@@ -178,15 +179,15 @@ def slide_infrastructure(c):
     para(c, "Outside services", sx, 448, swd, style(12, True, NAVY))
     services = [
         ("Databricks Free Edition: Model Serving",
-         "The LLM: <b>gpt-oss-120b</b>, called through its OpenAI-compatible Chat Completions API with "
+         ("The LLM: <b>gpt-oss-120b</b>, called through its OpenAI-compatible Chat Completions API with "
          "langchain-openai <font face='Courier'>ChatOpenAI</font>, by the deep agent over HTTPS. "
-         "Model name set by env var, never hardcoded.",
+         "Model name set by env var, never hardcoded."),
          AMBER_SOFT, AMBER),
         ("LangSmith", "Tracing: every plan, tool call, sub-agent run and pause, for debugging and demos.",
          WHITE, LINE),
         ("GitHub", "Private repository <font face='Courier'>SJK159/sproj_harness</font>.", WHITE, LINE),
-        ("Claude Design", "Generated the React frontend from our written design prompt "
-                          "(<font face='Courier'>docs/frontend-design-prompt.md</font>).", WHITE, LINE),
+        ("Claude Design", ("Generated the React frontend from our written design prompt "
+                          "(<font face='Courier'>docs/frontend-design-prompt.md</font>)."), WHITE, LINE),
         ("Google Fonts", "Web fonts loaded by the UI (its only external call).", WHITE, LINE),
     ]
     top = 426
@@ -250,7 +251,7 @@ def slide_flow(c):
         used = para(c, t, x + 4, y + bh - 4, bw - 8, style(7.6, True, NAVY, leading=8.8))
         para(c, b, x + 4, y + bh - 5 - used, bw - 8, style(6.6, color=INK, leading=7.8))
         centers.append((x, y, bw, bh))
-    for (x1, y1, w1, h1), (x2, y2, w2, h2) in zip(centers, centers[1:], strict=False):
+    for (x1, y1, w1, h1), (x2, y2, w2, h2) in itertools.pairwise(centers):
         elbow(c, x1 + w1, y1 + h1 / 2, x2, y2 + h2 / 2)
 
     # legend
@@ -377,29 +378,29 @@ def slide_decisions(c):
            "Each one is logged with its reason and the alternatives in docs/decisions.md.")
     decisions = [
         ("deepagents on LangGraph",
-         "Planning, sub-agents, human pauses, memory and skills come built in. One main agent plus one "
-         "eligibility-checker sub-agent; the automatic general-purpose sub-agent is turned off."),
+         ("Planning, sub-agents, human pauses, memory and skills come built in. One main agent plus one "
+         "eligibility-checker sub-agent; the automatic general-purpose sub-agent is turned off.")),
         ("Security in Python, not in prompts",
-         "No enrollment without a valid approval token: HMAC-signed, 24-hour expiry, single use, bound to the "
-         "case. Only the instructor side can mint one; no agent tool can."),
+         ("No enrollment without a valid approval token: HMAC-signed, 24-hour expiry, single use, bound to the "
+         "case. Only the instructor side can mint one; no agent tool can.")),
         ("Eligibility re-checked three times",
-         "When the case opens, when it is submitted and at execution. The sub-agent's verdict is never trusted "
-         "for a write, so a seat that fills after approval ends FAILED, not over capacity."),
+         ("When the case opens, when it is submitted and at execution. The sub-agent's verdict is never trusted "
+         "for a write, so a seat that fills after approval ends FAILED, not over capacity.")),
         ("People approve through pauses",
-         "interrupt_on with approve / reject only (no edit, no faked results). Conditional pauses (when) stop a "
-         "repeated call from waiting for an instructor who never comes."),
+         ("interrupt_on with approve / reject only (no edit, no faked results). Conditional pauses (when) stop a "
+         "repeated call from waiting for an instructor who never comes.")),
         ("Durable, auditable state",
-         "SQLite checkpointer with thread = case id, so a paused case survives a restart. Append-only audit log; "
-         "enrollment is idempotent (case id is the key)."),
+         ("SQLite checkpointer with thread = case id, so a paused case survives a restart. Append-only audit log; "
+         "enrollment is idempotent (case id is the key).")),
         ("Memory written only from records",
-         "Per-student namespace. save_case_note builds each note from database rows, and the file tools cannot "
-         "write memory, so nothing said in chat reaches a later prompt."),
+         ("Per-student namespace. save_case_note builds each note from database rows, and the file tools cannot "
+         "write memory, so nothing said in chat reaches a later prompt.")),
         ("A rules file instead of RAG",
-         "A hand-written SKILL.md with placeholder rules FE-1 to FE-8; every reason in an answer cites its rule "
-         "label. RAG is out of scope for now."),
+         ("A hand-written SKILL.md with placeholder rules FE-1 to FE-8; every reason in an answer cites its rule "
+         "label. RAG is out of scope for now.")),
         ("Model: gpt-oss-120b on Databricks",
-         "Free Edition, via ChatOpenAI. Fixes from live runs: declared the 128K window so summarization can "
-         "trigger; capped calls per run; streamed step by step because Databricks rejects token-streamed replies."),
+         ("Free Edition, via ChatOpenAI. Fixes from live runs: declared the 128K window so summarization can "
+         "trigger; capped calls per run; streamed step by step because Databricks rejects token-streamed replies.")),
     ]
     cw, ch, gap = (X1 - X0 - 14) / 2, 66, 9
     for i, (t, b) in enumerate(decisions):
