@@ -1,33 +1,32 @@
-"""Builds docs/LUMS-Orchestrator-Slides.pdf: 4 landscape slides for the instructor.
+"""Builds docs/LUMS-Orchestrator-Slides.pdf: 4 presentation slides for the instructor (16:9).
 
     uv run --with reportlab python scripts/make_slides.py [output.pdf]
 
-1. Infrastructure and outside services   2. One request, end to end
-3. Tool calling                          4. Key decisions and status
-Facts come from the repo (CLAUDE.md, docs/decisions.md, scripts/list_agent_tools.py); update them here when they change.
+1. What we built (and the outside services)   2. One request, start to finish
+3. How the assistant uses tools                4. Key decisions and where we are
+Plain language on purpose; the technical detail is in docs/decisions.md and docs/LUMS-Orchestrator-Explained.pdf.
+Facts come from the repo (tool lists: scripts/list_agent_tools.py; tests: uv run pytest); update them when they change.
 """
 
-import itertools
 import sys
 
 from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
-from reportlab.platypus import Paragraph, Table, TableStyle
+from reportlab.platypus import Paragraph
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "docs/LUMS-Orchestrator-Slides.pdf"
 W, H = 960, 540  # 16:9 in points
-X0, X1 = 36, 924
+X0, X1 = 56, 904
 
 NAVY = colors.HexColor("#1F3A5F")
 TEAL = colors.HexColor("#2A7F8E")
 TEAL_SOFT = colors.HexColor("#E3F1F3")
-SAND = colors.HexColor("#F4EFE6")
+SAND = colors.HexColor("#F7F3EC")
 GREY = colors.HexColor("#5B6470")
-GREY_SOFT = colors.HexColor("#EEF0F3")
-LINE = colors.HexColor("#8A939E")
-RED_SOFT = colors.HexColor("#F7E4E1")
+GREY_SOFT = colors.HexColor("#F1F3F6")
+LINE = colors.HexColor("#C9CFD6")
 GREEN = colors.HexColor("#3D7D4F")
 GREEN_SOFT = colors.HexColor("#E2F0E5")
 AMBER = colors.HexColor("#B7791F")
@@ -36,13 +35,12 @@ NAVY_SOFT = colors.HexColor("#E4EAF2")
 INK = colors.HexColor("#1D232B")
 WHITE = colors.white
 
-FOOTER = ("Group 4 “Height Boosters” · SProj 2026-27 · Supervisor: Dr. Ali Khawaja · "
-          "synthetic data only; FE rules are placeholders, not LUMS policy")
+FOOTER = "LUMS Process Orchestrator  ·  Group 4 “Height Boosters”  ·  SProj 2026-27"
 
 
-def style(size=9, bold=False, color=INK, leading=None, align=0):
+def style(size=12, bold=False, color=INK, leading=None, align=0):
     return ParagraphStyle("s", fontName="Helvetica-Bold" if bold else "Helvetica", fontSize=size,
-                          leading=leading or size * 1.28, textColor=color, alignment=align)
+                          leading=leading or size * 1.3, textColor=color, alignment=align)
 
 
 def para(c, html, x, top, w, st):
@@ -53,28 +51,30 @@ def para(c, html, x, top, w, st):
     return h
 
 
-def rbox(c, x, y, w, h, fill=WHITE, stroke=LINE, r=6, sw=0.9):
+def rbox(c, x, y, w, h, fill=WHITE, stroke=LINE, r=10, sw=1):
     c.setFillColor(fill)
-    c.setStrokeColor(stroke)
-    c.setLineWidth(sw)
-    c.roundRect(x, y, w, h, r, stroke=1, fill=1)
+    if stroke is not None:  # None: filled, no border
+        c.setStrokeColor(stroke)
+        c.setLineWidth(sw)
+    c.roundRect(x, y, w, h, r, stroke=0 if stroke is None else 1, fill=1)
 
 
-def card(c, x, top, w, h, title, body, fill=WHITE, stroke=LINE, tsize=9.5, bsize=8, tcolor=NAVY, pad=7):
-    rbox(c, x, top - h, w, h, fill, stroke)
-    used = para(c, title, x + pad, top - pad, w - 2 * pad, style(tsize, True, tcolor))
-    if body:
-        para(c, body, x + pad, top - pad - used - 2, w - 2 * pad, style(bsize, color=INK))
+def disc(c, cx, cy, r, fill, label, size=16, color=WHITE):
+    c.setFillColor(fill)
+    c.circle(cx, cy, r, stroke=0, fill=1)
+    c.setFillColor(color)
+    c.setFont("Helvetica-Bold", size)
+    c.drawCentredString(cx, cy - size * 0.35, label)
 
 
-def arrow(c, x1, y1, x2, y2, color=LINE, width=1.1, head=5.5):
+def arrow(c, x1, y1, x2, y2, color=LINE, width=2, head=8):
     c.setStrokeColor(color)
     c.setFillColor(color)
     c.setLineWidth(width)
-    c.line(x1, y1, x2, y2)
     dx, dy = x2 - x1, y2 - y1
     length = max((dx * dx + dy * dy) ** 0.5, 0.01)
     ux, uy = dx / length, dy / length
+    c.line(x1, y1, x2 - ux * head * 0.8, y2 - uy * head * 0.8)
     path = c.beginPath()
     path.moveTo(x2, y2)
     path.lineTo(x2 - head * ux - head * 0.55 * uy, y2 - head * uy + head * 0.55 * ux)
@@ -83,350 +83,217 @@ def arrow(c, x1, y1, x2, y2, color=LINE, width=1.1, head=5.5):
     c.drawPath(path, stroke=0, fill=1)
 
 
-def elbow(c, x1, y1, x2, y2, color=LINE):
-    """Right-angle connector: across to the midpoint, then vertically, then across with an arrowhead."""
-    mx = (x1 + x2) / 2
-    c.setStrokeColor(color)
-    c.setLineWidth(1.1)
-    c.line(x1, y1, mx, y1)
-    c.line(mx, y1, mx, y2)
-    arrow(c, mx, y2, x2, y2, color)
-
-
-def header(c, n, title, subtitle):
-    c.setFillColor(NAVY)
-    c.rect(0, H - 72, W, 72, stroke=0, fill=1)
+def header(c, n, kicker, title, subtitle):
     c.setFillColor(TEAL)
-    c.rect(0, H - 75, W, 3, stroke=0, fill=1)
-    c.setFillColor(WHITE)
-    c.setFont("Helvetica-Bold", 22)
-    c.drawString(X0, H - 38, title)
-    c.setFillColor(colors.HexColor("#CFE3E8"))
-    c.setFont("Helvetica", 11)
-    c.drawString(X0, H - 58, subtitle)
+    c.rect(0, H - 8, W, 8, stroke=0, fill=1)
+    c.setFillColor(TEAL)
     c.setFont("Helvetica-Bold", 10)
-    c.drawRightString(X1, H - 38, f"{n} / 4")
+    c.drawString(X0, H - 46, kicker.upper())
+    c.setFillColor(NAVY)
+    c.setFont("Helvetica-Bold", 28)
+    c.drawString(X0, H - 80, title)
+    para(c, subtitle, X0, H - 92, X1 - X0, style(13, color=GREY))
+    c.setStrokeColor(LINE)
+    c.setLineWidth(0.8)
+    c.line(X0, 34, X1, 34)
     c.setFillColor(GREY)
-    c.setFont("Helvetica", 7.5)
-    c.drawString(X0, 16, FOOTER)
-    c.drawRightString(X1, 16, "LUMS Process Orchestrator · force enrollment")
+    c.setFont("Helvetica", 9)
+    c.drawString(X0, 20, FOOTER)
+    c.drawRightString(X1, 20, f"{n} / 4")
 
 
 # ------------------------------------------------------------------------------------------------- slide 1
 
-def slide_infrastructure(c):
-    header(c, 1, "LUMS Process Orchestrator: infrastructure",
-           "A deep agent in front of a mock Zambeel. A student asks in plain English; Python enforces every rule.")
-    gx, gw = X0, 600  # diagram area
+def slide_what(c):
+    header(c, 1, "What we built", "An AI assistant for force enrollment",
+           "Students ask in plain English. The assistant checks the rules, asks the right people to approve, "
+           "and completes the request.")
+    top, h = 400, 210
 
-    # clients
-    top = 448
-    clients = [
-        ("Web UI", ("React 18 + Vite + Tailwind (<font face='Courier'>frontend/</font>): chat, live thinking panel, "
-                   "case lane, instructor review screen")),
-        ("Student CLI", "<font face='Courier'>harness.cli</font>: the same agent in a terminal, with a confirm prompt"),
-        ("Instructor", "Approve or reject in the web view or with <font face='Courier'>scripts/approve.py</font>"),
-    ]
-    cw = (gw - 2 * 12) / 3
-    for i, (t, b) in enumerate(clients):
-        card(c, gx + i * (cw + 12), top, cw, 58, t, b, fill=SAND, stroke=LINE)
-    for i in range(3):
-        arrow(c, gx + i * (cw + 12) + cw / 2, top - 58, gx + i * (cw + 12) + cw / 2, top - 72)
+    # people
+    x, w = X0, 220
+    rbox(c, x, top - h, w, h, SAND, None)
+    para(c, "People", x + 18, top - 16, w - 36, style(15, True, NAVY))
+    for i, (who, what) in enumerate([("S", "<b>Student</b><br/>asks for a seat in a full course"),
+                                     ("I", "<b>Instructor</b><br/>approves or rejects the request")]):
+        cy = top - 78 - i * 72
+        disc(c, x + 40, cy, 20, GREEN, who, 15)
+        para(c, what, x + 70, cy + 17, w - 84, style(11.5, leading=15))
+    para(c, "through a web app or the terminal", x + 18, top - h + 22, w - 36, style(10, color=GREY))
 
-    # API
-    top = 376
-    card(c, gx, top, gw, 34, "HTTP API: FastAPI 0.143 + Server-Sent Events (<font face='Courier'>harness.api</font>)",
-         "Streams each agent step (plan, tool calls, sub-agent steps, case updates, pauses) to the browser. "
-         "Local only (127.0.0.1).", fill=WHITE, tsize=9, bsize=7.6)
-    arrow(c, gx + gw / 2, top - 34, gx + gw / 2, top - 46)
+    # assistant
+    x2, w2 = X0 + 268, 330
+    arrow(c, X0 + w + 6, top - h / 2, x2 - 8, top - h / 2, TEAL)
+    rbox(c, x2, top - h, w2, h, TEAL_SOFT, None)
+    para(c, "The assistant", x2 + 20, top - 16, w2 - 40, style(15, True, NAVY))
+    items = ["Understands the request", "Plans the steps it will take",
+             "Checks every rule, using a helper agent", "Asks the student, then the instructor, to approve",
+             "Enrolls the student and remembers the outcome"]
+    for i, t in enumerate(items):
+        cy = top - 62 - i * 28
+        c.setFillColor(TEAL)
+        c.circle(x2 + 28, cy + 4, 4, stroke=0, fill=1)
+        para(c, t, x2 + 42, cy + 12, w2 - 60, style(12))
 
-    # deep agent
-    top = 330
-    rbox(c, gx, top - 100, gw, 100, TEAL_SOFT, TEAL)
-    para(c, "Deep agent: <b>deepagents 0.7.28</b> on <b>LangGraph 1.2.15</b> (langchain 1.4.6)",
-         gx + 8, top - 7, gw - 16, style(9.5, True, NAVY))
-    iw = (gw - 16 - 10) / 2
-    card(c, gx + 8, top - 26, iw, 66, "Main agent",
-         "Plans with <font face='Courier'>write_todos</font>, reads the rules skill, delegates checks with "
-         "<font face='Courier'>task</font>, calls the write tools (each one behind a pause).",
-         fill=WHITE, stroke=TEAL, tsize=9, bsize=7.8)
-    card(c, gx + 8 + iw + 10, top - 26, iw, 66, "Eligibility-checker sub-agent",
-         "Read-only tools; returns a structured <font face='Courier'>EligibilityVerdict</font> (codes + rule labels). "
-         "Can ask the student one clarifying question.",
-         fill=WHITE, stroke=TEAL, tsize=9, bsize=7.8)
-    arrow(c, gx + gw / 2, top - 100, gx + gw / 2, top - 114)
-
-    # storage + gates
-    top = 214
-    stores = [
-        ("Workflow + gates", "Python: case state machine, HMAC approval tokens, eligibility re-checks"),
-        ("harness.db", "SQLite: mock Zambeel, cases, approvals, append-only audit log, notices"),
-        ("checkpoints.db", "SQLite checkpointer: paused runs survive restarts; thread = case id"),
-        ("store.db", "SqliteStore: per-student memory notes (long-term memory)"),
-        ("skills/ + seed/", "SKILL.md rules (FE-1..FE-8) and agent rules; read-only to the agent"),
-    ]
-    sw_ = (gw - 4 * 9) / 5
-    for i, (t, b) in enumerate(stores):
-        fill = NAVY_SOFT if i == 0 else GREY_SOFT
-        card(c, gx + i * (sw_ + 9), top, sw_, 82, t, b, fill=fill, tsize=8.6, bsize=7.4, pad=6)
-
-    para(c, "<b>Stack:</b> Python 3.12, uv, pytest · 218 offline tests + 11 live tests on the real model · "
-            "no real Zambeel / PeopleSoft and no real student data: everything is a synthetic SQLite mock.",
-         gx, 116, gw, style(8.4, color=GREY))
+    # records
+    x3, w3 = x2 + w2 + 48, X1 - (x2 + w2 + 48)
+    arrow(c, x2 + w2 + 6, top - h / 2, x3 - 8, top - h / 2, TEAL)
+    rbox(c, x3, top - h, w3, h, NAVY_SOFT, None)
+    para(c, "University records", x3 + 18, top - 16, w3 - 36, style(15, True, NAVY))
+    para(c, "A practice copy of Zambeel: students, courses, sections and enrollments.<br/><br/>"
+            "A full history of every request and every change.",
+         x3 + 18, top - 50, w3 - 36, style(11.5, leading=15))
+    para(c, "synthetic data only", x3 + 18, top - h + 22, w3 - 36, style(10, color=GREY))
 
     # outside services
-    sx, swd = 660, X1 - 660
-    para(c, "Outside services", sx, 448, swd, style(12, True, NAVY))
-    services = [
-        ("Databricks Free Edition: Model Serving",
-         ("The LLM: <b>gpt-oss-120b</b>, called through its OpenAI-compatible Chat Completions API with "
-         "langchain-openai <font face='Courier'>ChatOpenAI</font>, by the deep agent over HTTPS. "
-         "Model name set by env var, never hardcoded."),
-         AMBER_SOFT, AMBER),
-        ("LangSmith", "Tracing: every plan, tool call, sub-agent run and pause, for debugging and demos.",
-         WHITE, LINE),
-        ("GitHub", "Private repository <font face='Courier'>SJK159/sproj_harness</font>.", WHITE, LINE),
-        ("Claude Design", ("Generated the React frontend from our written design prompt "
-                          "(<font face='Courier'>docs/frontend-design-prompt.md</font>)."), WHITE, LINE),
-        ("Google Fonts", "Web fonts loaded by the UI (its only external call).", WHITE, LINE),
-    ]
-    top = 426
-    for t, b, fill, stroke in services:
-        h = 72 if fill is AMBER_SOFT else 50
-        card(c, sx, top, swd, h, t, b, fill=fill, stroke=stroke, tsize=9, bsize=7.8)
-        top -= h + 8
-    # agent -> model: around the gap between the diagram and the services column
-    c.setStrokeColor(AMBER)
-    c.setLineWidth(1.3)
-    c.line(gx + gw, 300, sx - 12, 300)
-    c.line(sx - 12, 300, sx - 12, 390)
-    arrow(c, sx - 12, 390, sx - 1, 390, AMBER, 1.3)
+    para(c, "Outside services we use", X0, 150, 400, style(13, True, NAVY))
+    chips = [("Databricks", "the AI model (gpt-oss-120b)"), ("LangSmith", "watching what the AI does"),
+             ("GitHub", "our code"), ("Claude Design", "designed the web app")]
+    cw, gap = (X1 - X0 - 3 * 14) / 4, 14
+    for i, (name, role) in enumerate(chips):
+        x = X0 + i * (cw + gap)
+        rbox(c, x, 66, cw, 56, WHITE, LINE)
+        para(c, name, x + 14, 112, cw - 28, style(13, True, TEAL))
+        para(c, role, x + 14, 92, cw - 28, style(10.5, color=GREY))
 
 
 # ------------------------------------------------------------------------------------------------- slide 2
 
 def slide_flow(c):
-    header(c, 2, "One request, end to end",
-           "“Can I get force enrolled in CS412 section S1?”: two pauses for people, three eligibility "
-           "checks, one enrollment.")
-    lanes = ["Student", "Main agent", "Eligibility checker", "Python gates + DB", "Instructor"]
-    lane_h, top0, lx, lw = 64, 452, X0, 92
-    cx0 = lx + lw + 6
-    for i, name in enumerate(lanes):
-        y = top0 - (i + 1) * lane_h
-        c.setFillColor(GREY_SOFT if i % 2 == 0 else WHITE)
-        c.rect(lx, y, X1 - lx, lane_h, stroke=0, fill=1)
-        c.setFillColor(NAVY)
-        c.setFont("Helvetica-Bold", 8.6)
-        c.drawString(lx + 6, y + lane_h / 2 - 3, name)
-    c.setStrokeColor(LINE)
-    c.setLineWidth(0.5)
-    c.line(cx0 - 3, top0, cx0 - 3, top0 - 5 * lane_h)
-
-    # (lane, title, body, kind)
+    header(c, 2, "How it works", "One request, start to finish",
+           "Example: a student asks <i>“Can I get force enrolled in CS412?”</i>")
     steps = [
-        (0, "1  Asks", "“force enroll me in CS412 S1”", "person"),
-        (1, "2  Plans", "write_todos; reads SKILL.md rules", "agent"),
-        (2, "3  Checks", "via task: all FE rules; returns the verdict", "agent"),
-        (1, "4  Submits", "submit_case: PAUSE 1, ask the student", "pause"),
-        (3, "5  Opens case", "re-check 1; DRAFT, AWAITING_ CONFIRMATION", "gate"),
-        (0, "6  Confirms", "(declines: CANCELLED)", "person"),
-        (3, "7  Routes", "re-check 2; AWAITING_ APPROVAL; notifies I1", "gate"),
-        (1, "8  Waits", "execute_ enrollment: PAUSE 2; the process may stop here", "pause"),
-        (4, "9  Approves", "owner check; signed token minted", "person"),
-        (3, "10  Executes", "token verified; re-check 3; enrolls once", "gate"),
-        (1, "11  Wraps up", "notify_student; save_case_note", "agent"),
+        ("1", "Ask", "The student types the request in the chat.", TEAL),
+        ("2", "Check", "The assistant checks every rule: prerequisites, clashes, credits, seats.", TEAL),
+        ("3", "Confirm", "The student confirms before anything is sent.", GREEN),
+        ("4", "Approve", "The instructor approves or rejects it.", GREEN),
+        ("5", "Enroll", "The system verifies the approval and enrolls the student, exactly once.", NAVY),
+        ("6", "Wrap up", "The student is notified, and the outcome is remembered.", TEAL),
     ]
-    fills = {"person": (GREEN_SOFT, GREEN), "agent": (WHITE, TEAL), "pause": (AMBER_SOFT, AMBER),
-             "gate": (NAVY_SOFT, NAVY)}
     n = len(steps)
-    col = (X1 - cx0) / n
-    bw, bh = col - 8, lane_h - 10
-    centers = []
-    for i, (lane, t, b, kind) in enumerate(steps):
-        x = cx0 + i * col + 4
-        y = top0 - (lane + 1) * lane_h + 5
-        fill, stroke = fills[kind]
-        rbox(c, x, y, bw, bh, fill, stroke, r=5)
-        used = para(c, t, x + 4, y + bh - 4, bw - 8, style(7.6, True, NAVY, leading=8.8))
-        para(c, b, x + 4, y + bh - 5 - used, bw - 8, style(6.6, color=INK, leading=7.8))
-        centers.append((x, y, bw, bh))
-    for (x1, y1, w1, h1), (x2, y2, w2, h2) in itertools.pairwise(centers):
-        elbow(c, x1 + w1, y1 + h1 / 2, x2, y2 + h2 / 2)
+    col = (X1 - X0) / n
+    cy = 330
+    # "people decide" band behind steps 3 and 4
+    rbox(c, X0 + 2 * col + 6, cy - 128, 2 * col - 12, 196, GREEN_SOFT, None, r=14)
+    c.setFillColor(GREEN)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawCentredString(X0 + 3 * col, cy + 50, "PEOPLE DECIDE")
+    for i, (num, title, text, color) in enumerate(steps):
+        cx = X0 + col * i + col / 2
+        disc(c, cx, cy, 26, color, num, 20)
+        if i < n - 1:
+            arrow(c, cx + 32, cy, cx + col - 32, cy, LINE)
+        para(c, title, cx - col / 2 + 8, cy - 38, col - 16, style(15, True, NAVY, align=1))
+        para(c, text, cx - col / 2 + 10, cy - 60, col - 20, style(11, color=INK, leading=14.5, align=1))
 
-    # legend
-    lx2, ly = cx0, top0 - 5 * lane_h - 20
-    for label, kind in [("person decides", "person"), ("agent step (LLM chooses the tool)", "agent"),
-                        ("pause (interrupt_on: approve / reject)", "pause"), ("deterministic Python", "gate")]:
-        fill, stroke = fills[kind]
-        rbox(c, lx2, ly, 12, 9, fill, stroke, r=2)
-        c.setFillColor(INK)
-        c.setFont("Helvetica", 7.6)
-        c.drawString(lx2 + 16, ly + 1.5, label)
-        lx2 += stringWidth(label, "Helvetica", 7.6) + 34
-
-    # case states
-    states = ["DRAFT", "AWAITING_CONFIRMATION", "SUBMITTED", "AWAITING_APPROVAL", "APPROVED", "EXECUTING",
-              "COMPLETED"]
-    y = 80
-    c.setFillColor(NAVY)
-    c.setFont("Helvetica-Bold", 8.6)
-    c.drawString(X0, y + 6, "Case states")
-    x = X0 + 70
-    for i, s in enumerate(states):
-        w = stringWidth(s, "Helvetica-Bold", 7.4) + 14
-        last = i == len(states) - 1
-        rbox(c, x, y, w, 18, GREEN_SOFT if last else WHITE, GREEN if last else TEAL, r=9)
-        c.setFillColor(INK)
-        c.setFont("Helvetica-Bold", 7.4)
-        c.drawCentredString(x + w / 2, y + 6, s)
-        if not last:
-            arrow(c, x + w + 2, y + 9, x + w + 14, y + 9)
-        x += w + 16
-    para(c, "<b>Other endings:</b> ineligible: no case is ever created · student declines: CANCELLED · "
-            "instructor rejects: REJECTED (never executes) · token refused or FE cap filled after approval: "
-            "FAILED. <b>Every state change writes an append-only audit row</b> (who, what, from, to, when).",
-         X0, 66, X1 - X0, style(8, color=INK))
+    # what can go wrong
+    top = 168
+    rbox(c, X0, 52, X1 - X0, top - 52, GREY_SOFT, None)
+    para(c, "If something goes wrong, nothing unsafe happens", X0 + 20, top - 14, 600, style(13, True, NAVY))
+    cases = [("Not eligible", "The assistant explains why. No request is created."),
+             ("Declined or rejected", "The request is closed. Nothing changes."),
+             ("Seat filled in the meantime", "The system stops safely. No over-enrollment.")]
+    cw = (X1 - X0 - 40) / 3
+    for i, (t, b) in enumerate(cases):
+        x = X0 + 20 + i * cw
+        para(c, t, x, top - 44, cw - 20, style(12, True, INK))
+        para(c, b, x, top - 62, cw - 20, style(11, color=GREY, leading=14))
 
 
 # ------------------------------------------------------------------------------------------------- slide 3
 
-def tool_table(rows, widths, header_fill):
-    cell = style(7.9, leading=9.6)
-    head = style(8.2, True, WHITE)
-    data = [[Paragraph(h, head) for h in rows[0]]]
-    data += [[Paragraph(f"<font face='Courier-Bold'>{r[0]}</font>", cell)] + [Paragraph(v, cell) for v in r[1:]]
-             for r in rows[1:]]
-    t = Table(data, colWidths=widths)
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), header_fill),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, GREY_SOFT]),
-        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#C9CFD6")),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-    ]))
-    return t
-
-
 def slide_tools(c):
-    header(c, 3, "Tool calling",
-           "The model chooses the next tool call; Python decides what that call is allowed to do.")
-    w_main = [118, 264, 104]
-    main = [
-        ["Main agent tool", "What it does", "Kind"],
-        ["write_todos", "Writes the plan for this request (shown as todos in the UI)", "planning"],
-        ["read_file", "Reads the force-enrollment skill and rules (stands in for RAG)", "read"],
-        ["task", "Delegates the eligibility check to the checker sub-agent", "delegation"],
-        ["get_my_profile", "The student's own year, CGPA, credits, courses", "read"],
-        ["get_my_cases", "The student's own cases and their states", "read"],
-        ["list_offerings", "This term's catalogue: seats, full, FE accepted, slots", "read"],
-        ["submit_case", "Opens the case after a fresh eligibility re-check", "write · PAUSE: student confirms"],
-        ["execute_enrollment", "Verifies the signed approval token, re-checks, enrolls once",
-         "write · PAUSE: instructor decides"],
-        ["notify_student", "Sends the outcome notice", "write"],
-        ["save_case_note", "Adds a memory note built from the case record", "write (memory)"],
+    header(c, 3, "Tool calling", "How the assistant uses tools",
+           "The AI decides what to do next. Each tool does one job, and the risky ones need a person’s "
+           "approval first.")
+    # the loop
+    lx, ly, s = X0, 108, 300  # square of four steps
+    nodes = [
+        ("Decide", "The AI picks the next tool", TEAL_SOFT, TEAL, lx, ly + s - 80),
+        ("Approve?", "Only for actions: a person says yes or no", AMBER_SOFT, AMBER, lx + s - 130, ly + s - 80),
+        ("Run", "The tool does its one job, in code", NAVY_SOFT, NAVY, lx + s - 130, ly),
+        ("Read", "The AI reads the result, then decides again", TEAL_SOFT, TEAL, lx, ly),
     ]
-    t = tool_table(main, w_main, NAVY)
-    _, h = t.wrap(0, 0)
-    t.drawOn(c, X0, 450 - h)
-    main_bottom = 450 - h
+    for t, b, fill, stroke, x, y in nodes:
+        rbox(c, x, y, 130, 80, fill, None)
+        para(c, t, x + 12, y + 70, 106, style(14, True, stroke))
+        para(c, b, x + 12, y + 48, 106, style(10.5, color=INK, leading=13.5))
+    arrow(c, lx + 136, ly + s - 40, lx + s - 136, ly + s - 40, LINE)       # decide -> approve
+    arrow(c, lx + s - 65, ly + s - 86, lx + s - 65, ly + 86, LINE)          # approve -> run
+    arrow(c, lx + s - 136, ly + 40, lx + 136, ly + 40, LINE)               # run -> read
+    arrow(c, lx + 65, ly + 86, lx + 65, ly + s - 86, LINE)                  # read -> decide
 
-    w_chk = [124, 284]
-    chk = [
-        ["Eligibility-checker tool", "What it does"],
-        ["check_my_eligibility", "All FE rules for one section; every failing code with its rule label"],
-        ["list_sections", "Sections of one course: time, seats, FE terms"],
-        ["scan_my_fe_options", "The same check on every section this term, grouped"],
-        ["list_offerings", "The term's catalogue"],
-        ["get_my_profile", "The student's own record"],
-        ["read_file", "The rules skill"],
-        ["ask_student", "One clarifying question (PAUSE: the student's answer is the result)"],
-        ["EligibilityVerdict", "Structured output: per section can_submit, codes, labels, suggestions"],
+    # the three kinds of tool
+    gx = X0 + s + 50
+    gw = X1 - gx
+    groups = [
+        ("Look things up", "my profile  ·  my requests  ·  the course catalogue", TEAL_SOFT, TEAL),
+        ("Check the rules", "one section  ·  every course this term  ·  ask the student a question"
+                            "<br/><font color='#5B6470' size='10'>done by a separate helper agent that can only "
+                            "read</font>", GREEN_SOFT, GREEN),
+        ("Take action, with approval", "send the request  ·  enroll  ·  notify the student  ·  "
+                                       "save a note", AMBER_SOFT, AMBER),
     ]
-    t2 = tool_table(chk, w_chk, TEAL)
-    _, h2 = t2.wrap(0, 0)
-    t2.drawOn(c, X1 - sum(w_chk), 450 - h2)
-
-    # how one call is handled
-    top = min(main_bottom, 450 - h2) - 18
-    para(c, "How one tool call is handled", X0, top, 400, style(10.5, True, NAVY))
-    steps = [
-        ("Model proposes", "tool name + arguments (gpt-oss-120b)", WHITE, TEAL),
-        ("Pause if gated", "interrupt_on: approve / reject only; never edit or fake a result", AMBER_SOFT, AMBER),
-        ("Python runs it", "student from the runtime context, never from the model's arguments", NAVY_SOFT, NAVY),
-        ("Result back", "JSON (or {\"error\": …}) returned to the model", WHITE, TEAL),
-    ]
-    bw, gap, y_top = 196, 34, top - 20
-    for i, (t_, b, fill, stroke) in enumerate(steps):
-        x = X0 + i * (bw + gap)
-        card(c, x, y_top, bw, 46, t_, b, fill=fill, stroke=stroke, tsize=9, bsize=7.8)
-        if i < len(steps) - 1:
-            arrow(c, x + bw + 4, y_top - 23, x + bw + gap - 4, y_top - 23)
-    para(c, "<b>Guard rails:</b> write tools exist only on the main agent (checked by a test and "
-            "<font face='Courier'>scripts/list_agent_tools.py</font>) · deepagents' general-purpose sub-agent is "
-            "disabled · its built-in file tools (ls, glob, grep, write_file, edit_file, …) cannot write "
-            "<font face='Courier'>/skills</font>, <font face='Courier'>/rules</font> or "
-            "<font face='Courier'>/memories</font> · at most 25 model calls per run (main), 10 (checker).",
-         X0, y_top - 58, X1 - X0, style(8.3, color=INK))
+    top, bh, gap = 408, 82, 12
+    for i, (t, b, fill, stroke) in enumerate(groups):
+        y = top - (i + 1) * bh - i * gap
+        rbox(c, gx, y, gw, bh, fill, None)
+        c.setFillColor(stroke)
+        c.rect(gx, y, 6, bh, stroke=0, fill=1)
+        para(c, t, gx + 22, y + bh - 14, gw - 40, style(14, True, stroke))
+        para(c, b, gx + 22, y + bh - 38, gw - 40, style(11.5, leading=15))
+    para(c, "Built-in safety: the AI can never choose whose data it sees, and only the main assistant can take "
+            "action.", gx, top - 3 * bh - 2 * gap - 14, gw, style(11, color=GREY))
 
 
 # ------------------------------------------------------------------------------------------------- slide 4
 
 def slide_decisions(c):
-    header(c, 4, "Key decisions",
-           "Each one is logged with its reason and the alternatives in docs/decisions.md.")
+    header(c, 4, "Key decisions", "What we chose, and why",
+           "Each decision is written up with its reasons and the alternatives in our design log.")
     decisions = [
-        ("deepagents on LangGraph",
-         ("Planning, sub-agents, human pauses, memory and skills come built in. One main agent plus one "
-         "eligibility-checker sub-agent; the automatic general-purpose sub-agent is turned off.")),
-        ("Security in Python, not in prompts",
-         ("No enrollment without a valid approval token: HMAC-signed, 24-hour expiry, single use, bound to the "
-         "case. Only the instructor side can mint one; no agent tool can.")),
-        ("Eligibility re-checked three times",
-         ("When the case opens, when it is submitted and at execution. The sub-agent's verdict is never trusted "
-         "for a write, so a seat that fills after approval ends FAILED, not over capacity.")),
-        ("People approve through pauses",
-         ("interrupt_on with approve / reject only (no edit, no faked results). Conditional pauses (when) stop a "
-         "repeated call from waiting for an instructor who never comes.")),
-        ("Durable, auditable state",
-         ("SQLite checkpointer with thread = case id, so a paused case survives a restart. Append-only audit log; "
-         "enrollment is idempotent (case id is the key).")),
-        ("Memory written only from records",
-         ("Per-student namespace. save_case_note builds each note from database rows, and the file tools cannot "
-         "write memory, so nothing said in chat reaches a later prompt.")),
-        ("A rules file instead of RAG",
-         ("A hand-written SKILL.md with placeholder rules FE-1 to FE-8; every reason in an answer cites its rule "
-         "label. RAG is out of scope for now.")),
-        ("Model: gpt-oss-120b on Databricks",
-         ("Free Edition, via ChatOpenAI. Fixes from live runs: declared the 128K window so summarization can "
-         "trigger; capped calls per run; streamed step by step because Databricks rejects token-streamed replies.")),
+        ("Safety lives in code", "Approvals use signed, single-use passes that the AI itself cannot create."),
+        ("People stay in control", "Nothing is sent without the student, and nothing is enrolled without the "
+                                   "instructor."),
+        ("Checked three times", "Eligibility is checked again when the request is made, submitted and "
+                                "carried out."),
+        ("Nothing gets lost", "Requests survive a restart, and every change is logged."),
+        ("A helper agent for checks", "A separate checker keeps the main assistant focused, and it can only "
+                                      "read."),
+        ("A free, swappable AI model", "gpt-oss-120b on Databricks Free Edition. The model is a setting, "
+                                       "not code."),
     ]
-    cw, ch, gap = (X1 - X0 - 14) / 2, 66, 9
+    cw, ch, gx, gy = (X1 - X0 - 2 * 16) / 3, 96, 16, 14
     for i, (t, b) in enumerate(decisions):
-        col, row = i % 2, i // 2
-        x = X0 + col * (cw + 14)
-        top = 452 - row * (ch + gap)
-        card(c, x, top, cw, ch, f"{i + 1}. {t}", b, fill=WHITE, stroke=TEAL, tsize=9.6, bsize=8)
+        col, row = i % 3, i // 3
+        x = X0 + col * (cw + gx)
+        top = 404 - row * (ch + gy)
+        rbox(c, x, top - ch, cw, ch, WHITE, LINE)
+        disc(c, x + 26, top - 26, 13, TEAL, str(i + 1), 12)
+        para(c, t, x + 48, top - 18, cw - 60, style(13.5, True, NAVY))
+        para(c, b, x + 18, top - 48, cw - 36, style(11, color=INK, leading=14.5))
 
-    top = 452 - 4 * (ch + gap) - 4
-    rbox(c, X0, top - 72, X1 - X0, 72, SAND, LINE)
-    para(c, "Where we are", X0 + 10, top - 8, 300, style(10, True, NAVY))
-    para(c, "Milestones M0 to M9 done: force enrollment end to end in the CLI and the web UI. 218 offline tests "
-            "pass, plus 11 live tests on the real model; the integrity check finds every enrollment backed by an "
-            "approval and every case with a complete audit trail.",
-         X0 + 10, top - 24, (X1 - X0) / 2 - 20, style(8.2))
-    para(c, "Open questions for you", X0 + (X1 - X0) / 2, top - 8, 300, style(10, True, NAVY))
-    para(c, "1. Keep the deepagents package for the final system, or move to plain LangGraph?<br/>"
-            "2. Which workflow next (e.g. dropping a course), and does it need instructor approval?",
-         X0 + (X1 - X0) / 2, top - 24, (X1 - X0) / 2 - 10, style(8.2))
+    # headline numbers
+    stats = [("M0–M9", "milestones complete"), ("218", "automated tests passing"),
+             ("50", "course sections to test with"), ("2", "human approvals per request")]
+    sw_ = (X1 - X0 - 3 * 16) / 4
+    for i, (big, small) in enumerate(stats):
+        x = X0 + i * (sw_ + 16)
+        rbox(c, x, 50, sw_, 74, NAVY, None)
+        c.setFillColor(WHITE)
+        c.setFont("Helvetica-Bold", 26)
+        c.drawCentredString(x + sw_ / 2, 90, big)
+        c.setFillColor(colors.HexColor("#CFE3E8"))
+        c.setFont("Helvetica", 11)
+        c.drawCentredString(x + sw_ / 2, 66, small)
+    assert all(stringWidth(s, "Helvetica", 11) < sw_ - 10 for _, s in stats)
 
 
 def main() -> None:
     c = canvas.Canvas(OUT, pagesize=(W, H))
-    c.setTitle("LUMS Process Orchestrator: slides")
+    c.setTitle("LUMS Process Orchestrator")
     c.setAuthor("Group 4, SProj 2026-27")
-    for slide in (slide_infrastructure, slide_flow, slide_tools, slide_decisions):
+    for slide in (slide_what, slide_flow, slide_tools, slide_decisions):
         slide(c)
         c.showPage()
     c.save()
