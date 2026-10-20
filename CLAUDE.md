@@ -130,6 +130,7 @@ RUN_LIVE=1 uv run pytest -m live          # real-model tests (use Databricks quo
 uv run python scripts/check_integrity.py  # O-02 / O-03 checks on data/harness.db
 uv run python scripts/acceptance_report.py [--live]   # writes docs/acceptance-report.md
 uv run --with reportlab python scripts/make_explainer.py   # rebuilds docs/LUMS-Orchestrator-Explained.pdf
+uv run --with reportlab python scripts/make_slides.py      # rebuilds docs/LUMS-Orchestrator-Slides.pdf (4 slides)
 uv run python scripts/approve.py --case <case_id> --instructor I1 --decision approve|reject [--reason "..."]
 uv run python -m harness.api               # HTTP API on 127.0.0.1:8000 (no auth: local demo only)
 cd frontend && VITE_USE_MOCK=false npm run dev   # web UI against that API (http://localhost:5173)
