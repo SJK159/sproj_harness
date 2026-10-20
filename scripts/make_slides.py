@@ -228,11 +228,11 @@ def slide_tools(c):
     gw = X1 - gx
     groups = [
         ("Look things up", "my profile  ·  my requests  ·  the course catalogue", TEAL_SOFT, TEAL),
-        ("Check the rules", "one section  ·  every course this term  ·  ask the student a question"
+        ("Check the rules", ("one section  ·  every course this term  ·  ask the student a question"
                             "<br/><font color='#5B6470' size='10'>done by a separate helper agent that can only "
-                            "read</font>", GREEN_SOFT, GREEN),
-        ("Take action, with approval", "send the request  ·  enroll  ·  notify the student  ·  "
-                                       "save a note", AMBER_SOFT, AMBER),
+                            "read</font>"), GREEN_SOFT, GREEN),
+        ("Take action, with approval", ("send the request  ·  enroll  ·  notify the student  ·  "
+                                       "save a note"), AMBER_SOFT, AMBER),
     ]
     top, bh, gap = 408, 82, 12
     for i, (t, b, fill, stroke) in enumerate(groups):
@@ -253,15 +253,15 @@ def slide_decisions(c):
            "Each decision is written up with its reasons and the alternatives in our design log.")
     decisions = [
         ("Safety lives in code", "Approvals use signed, single-use passes that the AI itself cannot create."),
-        ("People stay in control", "Nothing is sent without the student, and nothing is enrolled without the "
-                                   "instructor."),
-        ("Checked three times", "Eligibility is checked again when the request is made, submitted and "
-                                "carried out."),
+        ("People stay in control", ("Nothing is sent without the student, and nothing is enrolled without the "
+                                   "instructor.")),
+        ("Checked three times", ("Eligibility is checked again when the request is made, submitted and "
+                                "carried out.")),
         ("Nothing gets lost", "Requests survive a restart, and every change is logged."),
-        ("A helper agent for checks", "A separate checker keeps the main assistant focused, and it can only "
-                                      "read."),
-        ("A free, swappable AI model", "gpt-oss-120b on Databricks Free Edition. The model is a setting, "
-                                       "not code."),
+        ("A helper agent for checks", ("A separate checker keeps the main assistant focused, and it can only "
+                                      "read.")),
+        ("A free, swappable AI model", ("gpt-oss-120b on Databricks Free Edition. The model is a setting, "
+                                       "not code.")),
     ]
     cw, ch, gx, gy = (X1 - X0 - 2 * 16) / 3, 96, 16, 14
     for i, (t, b) in enumerate(decisions):
