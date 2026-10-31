@@ -10,6 +10,7 @@ from typing import Any
 
 from langchain.tools import ToolRuntime, tool
 
+from harness.mcp.client import call as mcp_call, enabled as mcp_enabled
 from harness.context import HarnessContext
 from harness.mock_zambeel import (
     CURRENT_TERM,
@@ -47,7 +48,7 @@ def _section_row(conn: Any, offering_id: str) -> dict[str, Any]:
 
 def _term_offerings(conn: Any) -> list[Any]:
     return conn.execute(
-        """SELECT o.offering_id, o.course_id, o.section, o.instructor_id, c.title, c.credits
+        """SELECT o.offering_id, o.course_id, o.section, o.instructor_id, c.title, c.credits, c.department
            FROM offerings o JOIN courses c ON c.course_id = o.course_id
            WHERE o.term = ? ORDER BY o.course_id, o.section""",
         (CURRENT_TERM,),
@@ -59,6 +60,8 @@ def get_my_profile(runtime: ToolRuntime[HarnessContext]) -> str:
     """Return the signed-in student's profile: year, CGPA, probation status, completed courses,
     current-term enrollments and credits."""
     def go() -> dict[str, Any]:
+        if mcp_enabled():
+            return mcp_call("zambeel", "get_my_profile", {}, actor=student_id_of(runtime))
         with closing(connect()) as conn:
             return get_student_profile(conn, student_id_of(runtime))
     return run_json(go)
@@ -69,6 +72,8 @@ def list_sections(course_id: str, runtime: ToolRuntime[HarnessContext]) -> str:
     """List this term's sections of a course (e.g. course_id="CS412") with time, seats, whether the
     instructor accepts force enrollment, force-enrollment slots left, and any year/CGPA restriction."""
     def go() -> dict[str, Any]:
+        if mcp_enabled():
+            return mcp_call("zambeel", "list_sections", {"course_id": course_id}, actor=student_id_of(runtime))
         student_id_of(runtime)
         with closing(connect()) as conn:
             if conn.execute("SELECT 1 FROM courses WHERE course_id = ?", (course_id,)).fetchone() is None:
@@ -88,6 +93,8 @@ def check_my_eligibility(course_id: str, section: str, runtime: ToolRuntime[Harn
     (e.g. course_id="CS412", section="S1"). Returns every failing rule (blocking), notes such as
     open seats or other open sections (advisory), and the rule label to cite for each."""
     def go() -> dict[str, Any]:
+        if mcp_enabled():
+            return mcp_call("zambeel", "check_my_eligibility", {"course_id": course_id, "section": section}, actor=student_id_of(runtime))
         with closing(connect()) as conn:
             r = check_fe_eligibility(conn, student_id_of(runtime), course_id, section)
         return {
@@ -107,6 +114,8 @@ def check_my_eligibility(course_id: str, section: str, runtime: ToolRuntime[Harn
 def get_my_cases(runtime: ToolRuntime[HarnessContext]) -> str:
     """List the signed-in student's own force-enrollment cases and their current state."""
     def go() -> dict[str, Any]:
+        if mcp_enabled():
+            return mcp_call("fe", "get_my_cases", {}, actor=student_id_of(runtime))
         with closing(connect()) as conn:
             rows = conn.execute(
                 """SELECT case_id, offering_id, state, next_action, updated_at FROM cases
@@ -123,13 +132,15 @@ def list_offerings(runtime: ToolRuntime[HarnessContext]) -> str:
     whether it is full, whether the instructor accepts force enrollment, force-enrollment slots left, and any
     year/CGPA restriction. The catalogue is the same for every student; it says nothing about eligibility."""
     def go() -> dict[str, Any]:
+        if mcp_enabled():
+            return mcp_call("zambeel", "list_offerings", {}, actor=student_id_of(runtime))
         student_id_of(runtime)
         with closing(connect()) as conn:
             sections = []
             for r in _term_offerings(conn):
                 row = _section_row(conn, r["offering_id"])
                 sections.append({"course_id": r["course_id"], "title": r["title"], "credits": r["credits"],
-                                 "instructor_id": r["instructor_id"], **row, "full": row["available"] == 0})
+                                 "instructor_id": r["instructor_id"], "department": r["department"], **row, "full": row["available"] == 0})
         return {"term": CURRENT_TERM, "sections": sections}
     return run_json(go)
 
@@ -141,6 +152,8 @@ def scan_my_fe_options(runtime: ToolRuntime[HarnessContext]) -> str:
     blocked (every failing rule with its label), register_normally (open seats, no force enrollment needed),
     fe_not_accepted (full, and the instructor takes no force enrollment) and already_enrolled."""
     def go() -> dict[str, Any]:
+        if mcp_enabled():
+            return mcp_call("zambeel", "scan_my_fe_options", {}, actor=student_id_of(runtime))
         student_id = student_id_of(runtime)
         out: dict[str, Any] = {"term": CURRENT_TERM, "can_request": [], "blocked": [], "register_normally": [],
                                "fe_not_accepted": [], "already_enrolled": []}

@@ -328,3 +328,33 @@ Why: with 16 sections, most questions in the web UI hit the same few cases. Adde
 
 - deepagents package vs plain LangGraph for the final system: take evidence from M5 to M7 to the supervisor.
 - Whether the LangGraph checkpointer can replace the `WORKFLOW_CASE` table. Current answer: no, checkpoints are opaque and not queryable for status (UC-02) or RBAC, so the cases table stays the source of truth.
+
+## 2026-10-27: Local MCP services on the current mock
+
+**Two services, with existing deterministic gates reused.** Zambeel MCP exposes academic
+reads and service-restricted enrollment; FE MCP owns case operations and instructor decisions.
+`harness.academic` provides a call-scoped adapter so FE can use MCP without duplicating the
+workflow rules. The existing local mode remains the default; `HARNESS_USE_MCP=true` routes
+the existing allowlisted agent tools and human clients through the two services. This avoids
+blindly exposing the server's confirmation, instructor-decision or raw enrollment tools to the LLM.
+
+**Shared SQLite is deliberate for this first local increment.** FE academic operations travel
+over MCP, but the original schema, API read views, checkpoint handling and case-derived notes
+are retained. Zambeel's internal write validates the bound executing case and consumed owner
+approval in that shared database. A later independent backend needs a replacement authorization
+contract rather than simply removing those checks. Alternative: split databases and redesign all
+read projections immediately; deferred to keep this migration focused and reviewable.
+
+**Demo identity, not Entra.** Request-scoped demo actor/role headers replace model-supplied
+identity arguments. A separate local service credential protects internal academic operations.
+The listeners and client destinations are loopback-only. Demo identities remain spoofable by
+local callers; this is not an authentication claim. Entra and Azure are explicitly deferred.
+
+**Network ambiguity leaves execution retryable.** Approval consumption and EXECUTING remain
+atomic. If the academic backend commits but its reply is lost, retrying the same case discovers
+the existing enrollment and completes without a second write or approval. No automatic retry
+with a new key is introduced.
+
+Local setup, tool ownership, limitations and commands: `docs/local-mcp.md`.
+
+Validation: `uv sync --locked --offline` succeeded. `python -m pytest -q -m 'not live'` passed 232 tests (218 existing plus 14 MCP tests), with 11 live-model tests deselected. Both loopback servers and agent restart/resume were exercised with temporary databases. The normal `uv run --frozen python -m harness.mcp --help` launcher also succeeded.

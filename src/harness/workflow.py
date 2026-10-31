@@ -14,16 +14,13 @@ Instructor decisions (and token minting) live in harness.approvals; nothing here
 import sqlite3
 from typing import Any
 
+from harness.academic import check_fe_eligibility, enroll, get_section, get_student_profile, enrollment_result, course_details
 from harness.approvals import TokenRefused, verify_and_consume
 from harness.audit import write_event
 from harness.cases import UnknownCase, create_case, get_case, transition
 from harness.mock_zambeel import (
     Eligibility,
     ZambeelError,
-    check_fe_eligibility,
-    enroll,
-    get_section,
-    get_student_profile,
 )
 from harness.mock_zambeel.policy import RULE_LABELS
 from harness.notifications import notify
@@ -95,11 +92,11 @@ def open_case(conn: sqlite3.Connection, case_id: str, student_id: str, course_id
         raise WrongState(f"This session already has case {case_id} for {existing['offering_id']}. "
                          "Start a new session for another request.")
 
-    dup = conn.execute(
-        f"""SELECT c.case_id, c.state FROM cases c JOIN offerings o ON o.offering_id = c.offering_id
-            WHERE c.student_id = ? AND o.course_id = ? AND c.state IN ({",".join("?" * len(OPEN_STATES))})""",
-        (student_id, course_id, *OPEN_STATES),
-    ).fetchone()
+    candidates = conn.execute(
+        f"SELECT case_id, state, offering_id FROM cases WHERE student_id = ? AND state IN ({','.join('?' * len(OPEN_STATES))})",
+        (student_id, *OPEN_STATES),
+    ).fetchall()
+    dup = next((r for r in candidates if get_section(conn, r["offering_id"])["course_id"] == course_id), None)
     if dup is not None:
         raise DuplicateCase(dup["case_id"], dup["state"])
 
@@ -130,9 +127,8 @@ def _eligibility_snapshot(conn: sqlite3.Connection, student_id: str, section: di
                           eligibility: Eligibility) -> dict[str, Any]:
     """What the instructor sees at approval time: the facts behind the check that just passed, as of now."""
     profile = get_student_profile(conn, student_id)
-    credits = conn.execute("SELECT credits FROM courses WHERE course_id = ?", (section["course_id"],)).fetchone()[0]
-    prereqs = [r[0] for r in conn.execute(
-        "SELECT prereq_course_id FROM prerequisites WHERE course_id = ? ORDER BY prereq_course_id", (section["course_id"],))]
+    details = course_details(conn, section["course_id"])
+    credits, prereqs = details["credits"], details["prerequisites"]
     return {
         "year": profile["year"],
         "cgpa": profile["cgpa"],
@@ -184,7 +180,7 @@ def _fail(conn: sqlite3.Connection, case: dict[str, Any], action: str, reason: s
 
 
 def _enroll_and_finish(conn: sqlite3.Connection, case: dict[str, Any]) -> dict[str, Any]:
-    already = conn.execute("SELECT 1 FROM enrollments WHERE idempotency_key = ?", (case["case_id"],)).fetchone()
+    already = enrollment_result(conn, case["case_id"])
     if already is None:  # a crash retry whose enrollment exists skips the re-check and just completes
         section = get_section(conn, case["offering_id"])
         now = check_fe_eligibility(conn, case["student_id"], section["course_id"], section["section"])
@@ -209,7 +205,7 @@ def execute(conn: sqlite3.Connection, case_id: str, student_id: str) -> dict[str
     case = _own_case(conn, case_id, student_id)
     state = case["state"]
     if state == "COMPLETED":
-        row = conn.execute("SELECT enrollment_id, kind FROM enrollments WHERE idempotency_key = ?", (case_id,)).fetchone()
+        row = enrollment_result(conn, case_id)
         return {"case_id": case_id, "state": "COMPLETED", "enrollment_id": row["enrollment_id"], "kind": row["kind"]}
     if state == "FAILED":
         return {"case_id": case_id, "state": "FAILED", "reason": case["flag"] or "execution failed earlier"}

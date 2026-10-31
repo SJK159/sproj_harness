@@ -22,7 +22,7 @@ from typing import Any
 
 from harness.audit import write_event
 from harness.cases import InvalidTransition, get_case, transition
-from harness.mock_zambeel import get_section
+from harness.academic import get_section
 from harness.notifications import notify
 
 TOKEN_VERSION = "v1"

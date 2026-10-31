@@ -19,6 +19,7 @@ from typing import Any
 from langchain_core.messages import AIMessage
 from langgraph.types import Command
 
+from harness.mcp.client import call as mcp_call, enabled as mcp_enabled
 from harness.approvals import decide
 from harness.cases import get_case
 from harness.context import HarnessContext
@@ -59,7 +60,11 @@ def prepare_confirmation(case_id: str, student_id: str, args: dict[str, Any]) ->
     already known: the case cannot be opened (ineligible, duplicate) or was answered before a retried resume."""
     with closing(connect()) as conn:
         try:
-            case = open_case(conn, case_id, student_id, str(args.get("course_id", "")), str(args.get("section", "")))
+            if mcp_enabled():
+                case = mcp_call("fe", "prepare_case", {"case_id": case_id, "course_id": str(args.get("course_id", "")),
+                                "section": str(args.get("section", ""))}, actor=student_id)
+            else:
+                case = open_case(conn, case_id, student_id, str(args.get("course_id", "")), str(args.get("section", "")))
         except (WorkflowRefused, ZambeelError) as refused:
             return None, {"type": "reject", "message": f"Request not submitted: {refused}"}
     if case["state"] != "AWAITING_CONFIRMATION":  # answered before this resume was retried
@@ -71,7 +76,10 @@ def prepare_confirmation(case_id: str, student_id: str, args: dict[str, Any]) ->
 def answer_confirmation(case_id: str, student_id: str, confirmed: bool) -> Decision:
     """Second half: record the student's yes or no, and return the decision that resumes the agent."""
     with closing(connect()) as conn:
-        record_confirmation(conn, case_id, student_id, confirmed)
+        if mcp_enabled():
+            mcp_call("fe", "confirm_case", {"case_id": case_id, "confirmed": confirmed}, actor=student_id)
+        else:
+            record_confirmation(conn, case_id, student_id, confirmed)
     if confirmed:
         return {"type": "approve"}
     return {"type": "reject", "message": "The student declined at confirmation; the request was cancelled. Do not resubmit."}
@@ -132,7 +140,11 @@ def record_instructor_decision(agent: Any, case_id: str, instructor_id: str, dec
     decision = decision.upper()
     with closing(connect()) as conn:
         student_id = get_case(conn, case_id)["student_id"]
-        decide(conn, case_id, instructor_id, decision, reason)  # raises NotCourseOwner: thread stays paused
+        if mcp_enabled():
+            mcp_call("fe", "decide_case", {"case_id": case_id, "decision": decision, "reason": reason},
+                     actor=instructor_id, role="instructor")
+        else:
+            decide(conn, case_id, instructor_id, decision, reason)  # raises NotCourseOwner: thread stays paused
     if decision == "APPROVE":
         return student_id, {"type": "approve"}
     return student_id, {"type": "reject", "message": f"Instructor {instructor_id} rejected the request. "

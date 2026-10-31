@@ -10,6 +10,7 @@ from typing import Any
 
 from langchain.tools import ToolRuntime, tool
 
+from harness.mcp.client import call as mcp_call, enabled as mcp_enabled
 from harness.cases import get_case
 from harness.context import HarnessContext
 from harness.memory import FINAL_STATES, append_note, case_note
@@ -26,6 +27,9 @@ def submit_case(course_id: str, section: str, runtime: ToolRuntime[HarnessContex
     eligibility verdict says can_submit and the student wants to go ahead."""
     def go() -> dict[str, Any]:
         student_id, case_id = student_id_of(runtime), case_id_of(runtime)
+        if mcp_enabled():
+            out = mcp_call("fe", "submit_case", {"case_id": case_id, "course_id": course_id, "section": section}, actor=student_id)
+            return {**out, "next": "Call execute_enrollment (on its own) to wait for the instructor's decision."}
         with closing(connect()) as conn:
             requested = f"{course_id}-{section}"
             if get_case(conn, case_id)["offering_id"] != requested:
@@ -40,6 +44,8 @@ def execute_enrollment(runtime: ToolRuntime[HarnessContext]) -> str:
     """Wait for the instructor's decision on this session's submitted case, then carry it out. It pauses
     until the instructor approves or rejects; the enrollment happens only if the approval verifies."""
     def go() -> dict[str, Any]:
+        if mcp_enabled():
+            return mcp_call("fe", "execute_enrollment", {"case_id": case_id_of(runtime)}, actor=student_id_of(runtime))
         with closing(connect()) as conn:
             return execute(conn, case_id_of(runtime), student_id_of(runtime))
     return run_json(go, WorkflowRefused)
@@ -51,6 +57,8 @@ def notify_student(message: str, runtime: ToolRuntime[HarnessContext]) -> str:
     the assistant. Use it after a case completes, fails or is rejected."""
     def go() -> dict[str, Any]:
         student_id, case_id = student_id_of(runtime), case_id_of(runtime)
+        if mcp_enabled():
+            return mcp_call("fe", "notify_student", {"case_id": case_id, "message": message}, actor=student_id)
         with closing(connect()) as conn:
             has_case = conn.execute("SELECT 1 FROM cases WHERE case_id = ?", (case_id,)).fetchone() is not None
             with conn:
