@@ -23,7 +23,8 @@ export function CaseReview({ caseId }: { caseId: string }) {
   const { detail, error } = useCaseDetail(caseId);
   const { turn, start, running } = useRun();
   const [busy, setBusy] = useState<Decision | null>(null);
-  const [refusal, setRefusal] = useState<string | null>(null);
+  // status: the HTTP status of a refused decision (403 = not the owner, audited; 409 = nothing recorded)
+  const [refusal, setRefusal] = useState<{ error: string; status: number | null } | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [reason, setReason] = useState('');
 
@@ -32,14 +33,14 @@ export function CaseReview({ caseId }: { caseId: string }) {
     setRefusal(null);
     try {
       const res = await api.decide(caseId, app.instructorId, decision, why);
-      if (!res.ok) { setRefusal(res.error); app.bumpCase(); return; }
+      if (!res.ok) { setRefusal({ error: res.error, status: res.status }); app.bumpCase(); return; }
       await start(res.stream, (ev: RunEvent) => {
         if (ev.type === 'case.updated') app.bumpCase();
         if (ev.type === 'notification.created') app.pushNotification(ev.notification);
       });
       app.bumpCase();
     } catch (e) {
-      setRefusal(e instanceof Error ? e.message : 'The decision could not be sent.');
+      setRefusal({ error: e instanceof Error ? e.message : 'The decision could not be sent', status: null });
     } finally {
       setBusy(null);
     }
@@ -99,7 +100,14 @@ export function CaseReview({ caseId }: { caseId: string }) {
             <motion.div role="alert" initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
               className="mt-4 flex items-start gap-2.5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-[14px] text-red-800 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-200">
               <ShieldX className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              <div><span className="font-medium">Refused: {refusal}.</span> The case is still waiting for its section owner, and the attempt was recorded in the audit trail.</div>
+              <div>
+                <span className="font-medium">Refused: {refusal.error.replace(/\.+$/, '')}.</span>{' '}
+                {refusal.status === 403
+                  ? 'The case is still waiting for its section owner, and the attempt was recorded in the audit trail.'
+                  : refusal.status === 409 && detail.case.state === 'AWAITING_APPROVAL'
+                    ? "The student's assistant has not handed this case over yet, so nothing was recorded. Ask the student to open the chat and press Continue."
+                    : 'Nothing was recorded.'}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

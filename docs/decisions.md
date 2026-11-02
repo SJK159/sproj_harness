@@ -358,3 +358,21 @@ with a new key is introduced.
 Local setup, tool ownership, limitations and commands: `docs/local-mcp.md`.
 
 Validation: `uv sync --locked --offline` succeeded. `python -m pytest -q -m 'not live'` passed 232 tests (218 existing plus 14 MCP tests), with 11 live-model tests deselected. Both loopback servers and agent restart/resume were exercised with temporary databases. The normal `uv run --frozen python -m harness.mcp --help` launcher also succeeded.
+
+## 2026-11-03: Agent runs survive browser disconnects; stranded cases can be continued
+
+**Problem (found live 2026-11-02, MCP mode, case `FE-ae9ec221`, S2 → CS360-S1).** The student confirmed and switched to the instructor view while the agent was still working. The agent had run `submit_case` (case `AWAITING_APPROVAL`, I1 notified) and `write_todos`, then stopped. It never called `execute_enrollment`, so the thread was never paused at the instructor step. I1's Approve was refused (409, `NotWaitingForInstructor`): correct behaviour, but the case was stuck.
+
+**Cause.** `api/app.py` ran the agent inside the SSE response generator. When the browser dropped the connection, Starlette stopped iterating, and the run stopped at its current step. Leaving the chat view drops the connection (`useRun` stops the stream on unmount). There were no errors in any log; the MCP servers answered every call. This is not MCP-specific, and gpt-5-mini's extra `write_todos` step widened the window. A regression test reproduced it with a real uvicorn server and a real HTTP disconnect (`TestClient` does not deliver one).
+
+**Decision.**
+1. The request's dependency **launches the run in a worker thread**. The SSE response only relays the worker's events from a queue. The run continues to its own end (answer, pause, error or `POST /stop`) whatever the browser does. The session's run lock is released when the *run* ends, not when the response does.
+2. **Recovery:** the web chat recognises a *stranded* case (`AWAITING_APPROVAL` with no pending pause, not running) and offers **Continue**. That sends "Please continue and wait for the instructor's decision."; the agent then calls `execute_enrollment`, which pauses for the instructor. This covers the cases the worker can't prevent: an explicit Stop, a server restart, or a model ending its turn early.
+3. **The instructor refusal banner now says what was recorded.** A 403 (not the owner) is audited (`APPROVAL_REFUSED`). A 409 while the case is awaiting approval means the student's agent hasn't handed it over and nothing was recorded.
+
+**Alternative considered:** let the instructor's decision endpoint drive the student's agent to `execute_enrollment` itself. Rejected: it mixes who acts in the thread, and it duplicates the client logic. Continue keeps the student's agent in charge of its own case.
+
+**Verification.**
+- `tests/test_api_disconnect.py`: a run survives a real disconnect, reaches the instructor pause and completes once; a stranded case gives a 409 on the decision, then continues and completes. It failed before the fix ("the run stopped when the browser disconnected") and passes after.
+- 240 offline tests pass.
+- Live (Azure gpt-5-mini, MCP mode): S3 → CS330-S1, confirm, disconnect after one SSE line. 34 s later the case was paused for the instructor, and I5's approval completed it. `check_integrity.py` is clean.

@@ -155,7 +155,11 @@ export function ChatView() {
   const pending = session?.pending_interrupt ?? null;
   const caseState = (detail?.case.state ?? session?.case?.state ?? null) as CaseState | null;
   const waiting = caseState === 'AWAITING_APPROVAL' || pending?.kind === 'waiting_for_instructor';
+  // Submitted, but the run ended before execute_enrollment paused for the instructor (an explicit Stop, a server
+  // restart, or the model ending its turn early): nothing is waiting for the instructor yet. Continue resumes it.
+  const stranded = !running && caseState === 'AWAITING_APPROVAL' && !pending;
   const disabledReason = running ? null
+    : stranded ? 'Press Continue above to hand the request to the instructor.'
     : waiting ? 'This request is with the instructor. Start a new chat for another course.'
       : pending?.kind === 'confirm_submission' ? 'Confirm or decline the request above to continue.'
         : null;
@@ -282,6 +286,14 @@ export function ChatView() {
         )}
       </div>
       <div className="mx-auto w-full max-w-[760px] px-4 pb-3 sm:pb-4">
+        {stranded && (
+          <div role="status" className="mb-2 flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-[14px] text-amber-900 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-100">
+            <span>This request was submitted, but the assistant stopped before handing it to the instructor. If it is still working, wait a moment; otherwise continue.</span>
+            <Button size="sm" variant="primary" onClick={() => void send("Please continue and wait for the instructor's decision.")}>
+              Continue
+            </Button>
+          </div>
+        )}
         <StatusStrip turn={turn} caseState={caseState} />
         <Composer
           onSend={(t) => void send(t)}

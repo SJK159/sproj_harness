@@ -8,10 +8,14 @@ it, exactly like `--student S1` on the CLI. The server binds to 127.0.0.1 only (
 run the agent's student comes from the session's owner, never from a request field (invariant 5).
 
 Streaming endpoints check everything in a dependency first, so a refusal is a plain JSON error (403/404/409)
-before any event is sent. The stream itself then only runs the agent.
+before any event is sent. The dependency then starts the run in a worker thread; the SSE response only relays
+its events. A run therefore never depends on the browser connection: closing the tab or switching views stops
+the relay, not the agent (found live 2026-11-02: a dropped stream cut a run off between submit_case and
+execute_enrollment, stranding the case). Only POST /stop ends a run early.
 """
 
 import os
+import queue
 import secrets
 import sqlite3
 import threading
@@ -98,12 +102,18 @@ class Runs:
             if session_id in self._active:
                 self._active[session_id][1].set()
 
+    def idle(self, session_id: str) -> bool:
+        with self._lock:
+            return session_id not in self._active
+
 
 class Run:
-    """Everything a stream needs, prepared (and authorized) before the response starts."""
+    """Everything a run needs, prepared (and authorized) before the response starts. `events` is filled by the
+    worker thread once the run is launched; None marks the end."""
 
     def __init__(self, translator: RunTranslator, payload: Any, stop: threading.Event, unattended: bool = False):
         self.translator, self.payload, self.stop, self.unattended = translator, payload, stop, unattended
+        self.events: queue.SimpleQueue[dict[str, Any] | None] = queue.SimpleQueue()
 
 
 def create_app(agent: Any = None, store: BaseStore | None = None) -> FastAPI:
@@ -126,6 +136,7 @@ def create_app(agent: Any = None, store: BaseStore | None = None) -> FastAPI:
     app.add_middleware(CORSMiddleware, allow_origins=extra, allow_origin_regex=LOCAL_ORIGIN,
                        allow_methods=["GET", "POST"], allow_headers=["Content-Type", "Accept"])
     runs = Runs()
+    app.state.runs = runs  # tests wait on it (idle)
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException) -> JSONResponse:
@@ -148,12 +159,29 @@ def create_app(agent: Any = None, store: BaseStore | None = None) -> FastAPI:
         if owner != student_id:
             raise HTTPException(403, f"Session {session_id} belongs to another student.")
 
-    def stream(run: Run, session_id: str) -> Iterator[ServerSentEvent]:
+    def launch(run: Run, session_id: str) -> Run:
+        """Start the run in a worker thread. It runs to its own end (answer, pause, error or /stop) and only then
+        frees the session's run lock, whether or not anyone is still reading the stream."""
+        def work() -> None:
+            try:
+                for event in run_events(agent, run.translator, run.payload, unattended=run.unattended,
+                                        stop=run.stop):
+                    run.events.put(event)
+            finally:
+                runs.finish(session_id)
+                run.events.put(None)
+
         try:
-            for event in run_events(agent, run.translator, run.payload, unattended=run.unattended, stop=run.stop):
-                yield ServerSentEvent(data=event, event=event["type"])
-        finally:
+            threading.Thread(target=work, name=f"run-{session_id}", daemon=True).start()
+        except BaseException:
             runs.finish(session_id)
+            raise
+        return run
+
+    def stream(run: Run) -> Iterator[ServerSentEvent]:
+        """Relay the worker's events. If the client goes away this generator is simply abandoned."""
+        while (event := run.events.get()) is not None:
+            yield ServerSentEvent(data=event, event=event["type"])
 
     # ------------------------------------------------------------------------------------------- people
 
@@ -224,11 +252,11 @@ def create_app(agent: Any = None, store: BaseStore | None = None) -> FastAPI:
             conn.execute("UPDATE sessions SET title = COALESCE(title, ?), updated_at = ? WHERE session_id = ?",
                          (" ".join(body.text.split())[:TITLE_CHARS], views.now(), session_id))
         translator = RunTranslator(store, session_id=session_id, student_id=body.student_id, actor_id=body.student_id)
-        return Run(translator, {"messages": [{"role": "user", "content": body.text}]}, stop)
+        return launch(Run(translator, {"messages": [{"role": "user", "content": body.text}]}, stop), session_id)
 
     @app.post("/api/sessions/{session_id}/messages", response_class=EventSourceResponse)
     def send_message(session_id: str, run: Annotated[Run, Depends(prepare_message)]) -> Iterator[ServerSentEvent]:
-        yield from stream(run, session_id)
+        yield from stream(run)
 
     def prepare_resume(session_id: str, body: ResumeBody, conn: Db) -> Run:
         owned_session(conn, session_id, body.student_id)
@@ -256,11 +284,11 @@ def create_app(agent: Any = None, store: BaseStore | None = None) -> FastAPI:
         except BaseException:
             runs.finish(session_id)
             raise
-        return Run(translator, Command(resume={"decisions": [decision]}), stop)
+        return launch(Run(translator, Command(resume={"decisions": [decision]}), stop), session_id)
 
     @app.post("/api/sessions/{session_id}/resume", response_class=EventSourceResponse)
     def resume(session_id: str, run: Annotated[Run, Depends(prepare_resume)]) -> Iterator[ServerSentEvent]:
-        yield from stream(run, session_id)
+        yield from stream(run)
 
     @app.post("/api/sessions/{session_id}/stop", status_code=204)
     def stop(session_id: str) -> Response:
@@ -303,10 +331,10 @@ def create_app(agent: Any = None, store: BaseStore | None = None) -> FastAPI:
             runs.finish(case_id)
             raise
         # No student is present in this run: a new confirmation is declined, a question goes unanswered.
-        return Run(translator, Command(resume={"decisions": [answer]}), stop, unattended=True)
+        return launch(Run(translator, Command(resume={"decisions": [answer]}), stop, unattended=True), case_id)
 
     @app.post("/api/cases/{case_id}/decision", response_class=EventSourceResponse)
     def decision(case_id: str, run: Annotated[Run, Depends(prepare_decision)]) -> Iterator[ServerSentEvent]:
-        yield from stream(run, case_id)
+        yield from stream(run)
 
     return app
