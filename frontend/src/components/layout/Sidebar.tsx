@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import type { NotificationKind, Session } from '../../api/types';
 import { api } from '../../api/client';
+import { logout } from '../../api/auth';
 import { cn, relTime } from '../../lib/format';
 import { isFinal } from '../../lib/states';
 import { useMediaQuery } from '../../lib/hooks';
@@ -62,7 +63,7 @@ export function Sidebar() {
 }
 
 function SidebarBody() {
-  const { role, setSidebarOpen, setMobileNavOpen } = useApp();
+  const { role, identity, setSidebarOpen, setMobileNavOpen } = useApp();
   const isMd = useMediaQuery('(min-width: 768px)');
   return (
     <div className="flex h-full flex-col">
@@ -88,7 +89,7 @@ function SidebarBody() {
         <ThemeToggle />
         <div className="flex items-center justify-between gap-2">
           <SyntheticBadge />
-          <DemoMenu />
+          {!identity && <DemoMenu />}
         </div>
       </footer>
     </div>
@@ -98,9 +99,17 @@ function SidebarBody() {
 // ---------- identity ----------
 
 function IdentitySwitcher() {
-  const { role, setRole, students, instructors, studentId, setStudentId, instructorId, setInstructorId } = useApp();
+  const { identity, role, setRole, students, instructors, studentId, setStudentId, instructorId, setInstructorId } = useApp();
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState('');
   const btn = useRef<HTMLButtonElement>(null);
+  if (identity) return (
+    <div className="mx-3 mb-3 rounded-xl border border-line bg-surface p-3 text-sm">
+      <div>Signed in as {identity.actor_id} · {identity.role}</div>
+      <button type="button" className="mt-2 underline" onClick={() => { void logout().catch(() => setError('Could not sign out. Please retry.')); }}>Sign out</button>
+      {error && <p role="alert">{error}</p>}
+    </div>
+  );
   const isStudent = role === 'student';
   const cur = isStudent ? students?.find((s) => s.student_id === studentId) : instructors?.find((i) => i.instructor_id === instructorId);
   const curId = isStudent ? studentId : instructorId;
@@ -254,10 +263,11 @@ const KIND_ICON: Record<NotificationKind, { Icon: typeof Bell; cls: string }> = 
 };
 
 function NotificationsBell() {
-  const { notifications, markAllRead, role, openSession, setReviewCaseId } = useApp();
+  const { identity, notifications, markAllRead, role, openSession, setReviewCaseId } = useApp();
   const [open, setOpen] = useState(false);
   const [fresh, setFresh] = useState<number[]>([]);
   const btn = useRef<HTMLButtonElement>(null);
+  if (identity) return <button type="button" disabled title="Notifications are not available yet" aria-label="Notifications are not available yet" className="p-1.5 text-faint"><Bell className="h-4 w-4" /></button>;
   const unread = notifications.filter((n) => !n.read_at).length;
   const toggle = () => {
     if (!open) { setFresh(notifications.filter((n) => !n.read_at).map((n) => n.notification_id)); markAllRead(); }

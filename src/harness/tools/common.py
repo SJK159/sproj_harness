@@ -9,6 +9,7 @@ from langchain.tools import ToolRuntime
 from harness.cases import UnknownCase
 from harness.context import HarnessContext
 from harness.mock_zambeel import ZambeelError
+from harness.mcp.authenticated import ReauthenticationRequired
 
 
 class Refused(Exception):
@@ -36,5 +37,7 @@ def case_id_of(runtime: ToolRuntime[HarnessContext]) -> str:
 def run_json(fn: Callable[[], dict[str, Any]], *errors: type[Exception]) -> str:
     try:
         return json.dumps(fn())
+    except ReauthenticationRequired:
+        raise  # Do not let the model keep retrying an expired application session.
     except (Refused, ZambeelError, UnknownCase, *errors) as exc:
         return json.dumps({"error": str(exc)})

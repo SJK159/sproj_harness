@@ -1,5 +1,11 @@
 # Build plan: force enrollment deep agent
 
+Integration update (2026-11-16): M0-M9 below record the original mock build. M10
+is tracked in [infrastructure-crosswalk.md](infrastructure-crosswalk.md) and
+[ammar-agent-integration.md](ammar-agent-integration.md). Code is locally tested;
+live WP7 acceptance depends on teammate services/configuration. The selected
+browser flow is backend-managed login/cookie/cache, superseding the OBO proposal.
+
 One milestone at a time. Each milestone ends with its "done when" checks passing and a commit.
 
 ## M0. Project setup

@@ -1,268 +1,378 @@
-# Ammar: agent integration engineering record
+# Ammar: agent, identity and MCP integration
 
-Status: API authentication/authorization foundation plus durable worker components;
-full integration pending. Worker protocol/runbook: [worker-handoff.md](worker-handoff.md).
-Branch: `ammar`. Working date: 2026-11-16.
-Baseline: `8e234b8ed627923c7715be856077d865fbe3bc8b`.
+Working/submission date: **2026-11-16**. Branch: **ammar**.
+Baseline: `8e234b8ed627923c7715be856077d865fbe3bc8b` on main.
+Status: agent-side implementation tested locally; live integrated acceptance pending.
+Earlier branch contributions: `e49e065` (API boundary), `a4329db` (worker).
+Use `git rev-parse HEAD` for the checked-out submission SHA; the final completion
+report records it. A commit cannot embed its own SHA.
 
-## 1. Context and scope
+## 1. Project context and assigned scope
 
-The baseline already implements a force-enrollment deep agent, eligibility checker,
-student confirmation, instructor approval, deterministic execution, checkpointing,
-student memory, audits, and a React/FastAPI application. These are existing team
-contributions, not newly implemented in this branch.
+Before this branch the team already had a Deep Agents/LangGraph force-enrollment
+agent, read-oriented eligibility sub-agent, synthetic Zambeel database, deterministic
+approval/enrollment gates, SQLite checkpoints, per-student memory, audit, two local
+MCP servers and React/FastAPI streaming. The main baseline had 240 offline tests.
+Those working features are preserved contributions, not newly invented here.
 
-Ammar owns agent/orchestrator integration. Nausherwan owns MCP server internals
-and currently Entra administration while Saad is away. Hussain owns Sakai;
-Yahya owns infrastructure. This branch does not configure their external systems.
+Ammar owns the role originally labelled Saad: trusted agent identity, authenticated
+MCP clients, preserved HITL/persistence/security, dashboard integration, recovery
+and documentation. Nausherwan owns MCP server internals and currently Entra
+administration while Saad is away. Hussain owns Sakai; Yahya owns Oracle/DNS/proxy.
+Real PeopleSoft integration remains outside this branch.
 
-The first increment protects the FastAPI boundary with verified credentials and
-ownership checks. The second adds the execution outbox, lease/recovery primitives,
-MSAL application-token provider and service-only MCP worker client. It does not
-implement browser sign-in or server-side MCP permissions/endpoints.
+This branch adds an optional bearer-verifier foundation, backend-managed browser
+login/session/cache, authenticated tool transport, frontend sign-in and recovery
+integration, a durable service worker, and tests. It does not claim Nausher's
+unpublished endpoints or permissions are implemented. See
+[infrastructure-crosswalk.md](infrastructure-crosswalk.md) for milestone status.
 
-## 2. Initial and current architecture
+## 2. Initial architecture versus current architecture
 
-Baseline: browser supplies IDs -> FastAPI -> agent -> local tools or demo MCP.
-SQLite stores sessions, cases, approvals, audit, checkpoints and long-term memory.
+Before: a browser/CLI claimed `S1` or `I1`; API and MCP demo headers trusted those
+claims. The agent used local functions, optionally the loopback MCP transport.
 
-Current optional boundary:
+The agreed browser design is a BFF (backend for frontend):
 
-```text
-Bearer token for harness API
-  -> ApiAuthorization
-  -> EntraVerifier: RS256/JWKS, issuer, audience, lifetime, tenant, scope, role
-  -> operator-managed (tid, oid) mapping
-  -> route/resource ownership checks
-  -> existing API handlers -> existing agent/workflow
+```mermaid
+flowchart LR
+  B[React browser] -->|opaque cookie + CSRF on writes| A[FastAPI BFF]
+  A <-->|authorization code / user token cache| E[Entra]
+  A --> G[Deep agent / LangGraph]
+  G --> C[Authenticated MCP client]
+  C -->|FE delegated token| F[FE MCP]
+  C -->|Zambeel delegated token| Z[Zambeel MCP]
+  A --> P[Local sessions / checkpoints / student memory]
+  F --> D[Cases / approvals / audit / job outbox]
+  W[Leased service worker] -->|app token + case_id only| F
+  F -->|FE application identity| Z
+  Z --> M[Mock academic DB; PeopleSoft later]
 ```
 
-This foundation supports testing API authentication against the local workflow.
-It is not the target authenticated MCP deployment. `entra` mode refuses
-`HARNESS_USE_MCP=true` while that would send spoofable demo headers downstream.
-No silent authentication fallback occurs. Default `demo` preserves local operation.
-
-The October infrastructure plan's Azure/placeholder hostnames are superseded by
-the November Oracle/revsoft.net assignment. Actual endpoints remain external config.
-Existing M0-M9 behavior is preserved; WP7 authentication is only partially addressed.
+Sakai is a future third authenticated MCP resource once its contract exists.
+No placeholder live Sakai results are displayed. Hosted MCP authorization and
+the worker endpoint remain Nausher's integration boundary. Initial deployment
+assumes the agreed single VM/shared FE SQLite case database; separate database
+hosting would need additional contracts rather than silently copying records.
 
 ## 3. Identity and authentication
 
-`src/harness/api/auth.py:EntraVerifier.verify` accepts a harness API access token.
-An ID token is for sign-in; this API requires a delegated scope in `scp` and an
-assigned role in `roles`, in addition to the correct API audience. A token issued
-for FE or Zambeel is not accepted merely because Entra signed it.
+`api/bff.py:BFF.router` implements `/auth/login`, `/auth/callback`, `/auth/status`
+and POST `/auth/logout`. Login uses MSAL ConfidentialClientApplication, auth-code
+flow and MSAL's PKCE/state/nonce machinery. The callback is fixed in backend config:
+`http://localhost:8000/auth/callback` locally. Redirect destinations never come
+from arbitrary request parameters.
 
-The verifier fixes the algorithm to RS256 and uses tenant-specific public JWKS,
-cached by PyJWT. It verifies signature, exact issuer, audience, expiry and issued-at
-claims, checks tenant and v2 token version, and requires an object ID. Synthetic
-tests replace only key retrieval, exercising actual RSA signature verification.
+A login flow is encrypted server-side, bound to a random HttpOnly login cookie,
+expires after ten minutes and is consumed once before the callback exchange.
+MSAL verifies the callback protocol; we additionally check the returned ID claims'
+tenant, harness audience, issuer, expiry and object ID. The project mapping then
+resolves `(tid, oid)` to a supported internal actor/role. Email prefixes, browser
+IDs, JWT strings supplied by the browser and model output are not identity sources.
 
-The scope is configured independently from the role. Scope authorizes delegated
-API access; a role grants an application capability. Both are required. The
-operator mapping must also agree with the role; an Instructor token cannot turn
-a mapped Student into an instructor. Unknown identities are refused.
+Confirmed synthetic mapping: tenant `305b003b-4966-4335-ae28-1c377e906143`, object
+`38ab6ffb-e8b5-424a-8cdd-c88e594cbba8` -> `S1`, Student. The sample mapping is
+`seed/entra-users.example.json`. Only S1 is currently provisioned externally.
+No instructor/Sakai user mapping is fabricated. BFF role authorization comes from
+the operator mapping; MCP APIs independently enforce their resource-specific
+scopes/app roles. A harness session does not grant an Instructor role on FE.
 
-Mapping format (operator-managed file, synthetic values):
+An ID token identifies the user to the harness; it is not forwarded to MCP.
+`BFF.token` asks MSAL for a delegated **access token for one resource** at a time:
+FE uses `api://04ce3e46-2e44-4c4c-949f-09ce52e2a17b/mcp.access`; Zambeel uses
+`api://9fd72d08-229f-4b7e-9733-7a23689c4cfa/mcp.access`. Silent acquisition uses
+the matching cached account and refresh authorization when possible. Interaction
+required returns a sign-in error; it never substitutes an ID token or demo header.
+This supersedes the earlier browser-bearer/OBO proposal. OBO is not used here.
 
-```json
-[{"tenant_id":"tenant-guid","object_id":"object-guid","actor_id":"S1","role":"Student"}]
-```
+`SessionStore` stores encrypted flow/session/cache payloads in a separate SQLite
+auth database. Browser cookies are random references, stored only as SHA-256
+digests in that database. Sessions last eight hours, with no silent extension.
+Fernet authenticates/encrypts payloads; cache changes are serialized in a SQLite
+transaction so competing requests do not overwrite refreshed cache contents.
+The single-VM implementation bounds MSAL network calls; this is not a distributed
+high-throughput session service.
 
-The stable key is `(tid, oid)`, not an email prefix. Duplicate identity entries
-and unsupported roles fail configuration. The mapping currently permits one
-role per identity; dual-role support is not inferred.
+The encryption key must persist across restarts and live outside git. Local
+loopback development can create `data/auth.key` once; hosted mode requires a
+provisioned protected key. Changing it invalidates sessions, not cases. The local
+private configuration/key have user/SYSTEM ACLs on Windows. Production needs
+equivalent restricted OS permissions, persistent storage and backup handling.
 
-The compatibility API still includes actor IDs in paths/bodies. They are checked
-against verified identity before execution, so they are not an authority source.
-`/api/me` returns only mode, mapped actor ID and role. Credentials are not copied
-into `HarnessContext`, LangGraph messages, SQLite checkpoints, memory or SSE.
+Cookies are host-only, HttpOnly, SameSite=Lax and Secure in hosted mode. Plain HTTP
+is permitted only through explicit loopback development configuration. Every
+state-changing browser request requires the session's CSRF token AND an exact
+trusted Origin. CORS allows explicit origins with credentials, never a wildcard.
+Status returns identity/CSRF only; responses use no-store. Callback responses use
+no-referrer, and the provided API launcher disables BFF access logs so auth codes
+in query strings are not logged. A hosted proxy must do the same for callback URLs.
+Logout removes the local session/cache; it does not sign out every Microsoft app.
+The registered loopback flow uses a GET/query callback; MSAL warns that form_post
+is preferred. Moving hosted login to form_post requires coordinated callback and
+cross-site login-cookie handling, not merely changing an MSAL flag while retaining
+the current SameSite=Lax binding cookie. Hosted login has not been live-validated.
 
-Configured mode is chosen at startup. Missing settings, unknown modes and unsafe
-demo-MCP combinations fail startup. Missing/invalid credentials receive 401 with
-a Bearer challenge; missing scope/role/mapping or resource access receives 403.
+`api/auth.py:ApiAuthorization` protects all API reads/writes/streams, checks
+resource ownership and rejects conflicting body/path IDs. `context.py` creates a
+verified student context with non-secret tenant/object IDs. The legacy isolated
+`entra` bearer mode still tests RS256/JWKS, issuer, audience, expiry, scope and role;
+it is not the selected browser login mode. Unknown modes fail configuration.
 
-## 4. MCP boundary and pending token acquisition
+## 4. Agent-to-MCP integration
 
-Existing read/write tool wrappers use `mcp/client.py` when enabled. They explicitly
-select FE/Zambeel tools; no blind tool discovery grants model permissions. Each
-call opens its own transport session with a timeout. Ambiguous writes are not
-automatically retried by the transport. Existing workflow logic reconciles an
-already-created enrollment by case ID.
+Existing `read_tools.py`, `write_tools.py` and `clients.py` already called a small
+MCP wrapper when enabled. `mcp/client.py` now dispatches authenticated calls to
+`mcp/authenticated.py:AuthenticatedMCP`, keeping those tool names/arguments stable.
+Only explicit allowed tools remain visible to the agent.
 
-No MCP contracts are changed here. Local headers are still demo claims; they
-must be replaced by Nausherwan's validation and the agreed client token provider.
-The updated agreed flow is FastAPI-managed authorization-code sign-in, an opaque
-browser session cookie and protected server-side user token cache. FastAPI acquires
-resource-specific user tokens directly through that cache; OBO is not needed for
-this browser flow. Browser session/CSRF integration remains pending. The initial
-bearer-verifier tests remain useful, but browser-facing API authentication must
-be adapted to the verified server session rather than requiring browser tokens.
+`ApiAuthorization` creates a request-scoped transport capability. It contains a
+server-side session reference/token-provider callable, not model-visible tokens.
+`app.py:launch` copies context into the detached worker thread; tool/sub-agent
+execution inherits the capability. A capability refuses actor/role overrides and
+service-key use. `RunTranslator` converts the verified principal into runtime
+context. Neither cookie references nor tokens enter messages/checkpoints/memory.
 
-Dashboard views currently read shared SQLite directly. They must be adapted to
-agreed MCP operations before claiming integrated service isolation. The current
-contract lacks full instructor/notification dashboard coverage. No Sakai schema
-or synthetic substitute is introduced in this branch.
+Each call opens an MCP session, initializes it, attaches the intended resource's
+bearer token and invokes the tool. HTTPS is required except explicit loopback
+development. Redirect following and ambient proxy configuration are disabled.
+HTTP timeouts are bounded and possibly completed writes are not blindly replayed.
+Unknown transport/protocol/service failures become `MCPUnavailable`, with fixed
+sanitized messages. Authentication failures do not cause demo fallback.
+
+`clients.prepare_confirmation` propagates operational failures instead of
+interpreting them as student cancellation. Thus a persisted pause can resume after
+reauthentication or service recovery. Supported deterministic domain refusals
+remain refusals. The stream logs only exception type for authenticated failures,
+not OAuth/transport payloads.
+
+Profile now uses Zambeel MCP; student cases and case details use existing FE tools.
+`views.remote_case_detail` projects the existing case/audit result to the existing
+UI schema (approval and enrollment are reconstructed from recorded audit events).
+No new server response schema is invented. Local non-personal catalogue metadata
+still supplies section owner display/defense checks; FE authorizes the actual call.
+
+FE has no notification or instructor-list contract in current main. BFF routes
+therefore return explicit unavailable responses rather than bypassing FE using
+personal SQL reads. Authenticated notification UI is labelled unavailable; an
+instructor can open an owned case by ID. Session/checkpoint history and the shared
+case state used for graph coordination remain application-local storage. Full
+service/database separation is not claimed. Sakai is similarly awaiting its API.
 
 ## 5. LangGraph, sub-agents and HITL
 
-`agent.py:build_agent` uses `create_deep_agent`. The eligibility checker has a
-restricted read tool set and returns a structured verdict. Write tools remain
-on the main agent; the generic sub-agent is disabled. Model instructions do not
-override deterministic workflow authorization.
+`agent.py:build_agent` uses `create_deep_agent`. The separate eligibility checker
+has read-only academic tools and structured output; its context stays small and
+it cannot acquire main-agent write permissions. The generic inherited sub-agent
+remains disabled. Model instructions never decide whether enrollment is authorized.
 
-Installed HITL middleware matches registered tool names. Existing wrappers use
-`submit_case` and `execute_enrollment`, matching FE names, so this increment does
-not rename them. Submission pauses for student confirmation; execution pauses
-for the owning instructor. Write decisions permit approve/reject, not argument
-editing. The checkpointer persists pending tool calls. Resume supplies context
-again, since runtime context is not the stored authorization credential.
+Installed HITL middleware matches registered names. Existing MCP wrapper names
+already match `submit_case`/`execute_enrollment`; unnecessary renaming would break
+resume consumers. Submission pauses for explicit student confirmation; execution
+pauses for instructor approval. Write pauses allow approve/reject, not argument
+editing or a forged human tool result. Clarification separately permits respond.
 
-The global API dependency runs before streaming handlers/dependencies launch a
-worker. Invalid credentials therefore produce JSON errors before SSE begins.
-The worker/relay separation remains unchanged: browser disconnect does not stop
-an admitted run. Every later request must authenticate again. Mid-run token
-expiry/revocation and downstream renewal policy remain integration work.
+The checkpointer retains tool calls/interrupts/thread association across restarts.
+Each request supplies authenticated context again. The SSE worker continues when
+the browser disconnects; the relay does not own execution. Authentication/CSRF
+checks occur before launching streams. Expired sessions cannot send/resume/stop.
+
+In BFF mode instructor decisions call FE with the instructor's delegated token,
+then return a decision acknowledgement. They do not resume a student's graph or
+use an instructor token as a student credential. FE/outbox and the worker complete
+approved enrollment independently.
+
+`reconciliation.py:reconcile_finished` closes a stale execute pause only after an
+authoritative terminal case record (and a saved enrollment for COMPLETED) exists.
+It writes a deterministic tool outcome/final message and idempotent case note,
+without calling a model, executing enrollment or minting approval. Public graph
+inspection identifies the terminal node; unsupported graph changes fail review.
+BFF checks FE's authorized status before reconciling the shared case record.
+Session/history reads perform this repair. React polls without overlapping requests
+and reloads the terminal chat so a returning student sees the recovered result.
 
 ## 6. Persistence, idempotency and audit
 
-Session ID = graph thread ID = associated case ID in the current application.
-`persistence.py` uses SqliteSaver for execution state and SqliteStore for long-term
-notes. Memory namespaces derive from the session's student. Authenticated API
-requests cannot read a different student's memory/history or resume their session.
-Protected rules/skills/memory routes retain read-only filesystem permissions.
+Session ID = thread ID = associated case ID. SqliteSaver stores graph execution;
+SqliteStore holds long-term notes under `('students', student_id, 'memories')`.
+Protected skills/rules/memories remain read-only to filesystem tools. The notes
+writer derives facts from canonical case records, not arbitrary chat instructions.
 
-The existing state machine advances DRAFT -> AWAITING_CONFIRMATION -> SUBMITTED
--> AWAITING_APPROVAL -> APPROVED -> EXECUTING -> COMPLETED, with refusal/failure
-and cancellation paths. Existing transitions record audits transactionally.
+The existing workflow remains DRAFT -> AWAITING_CONFIRMATION -> SUBMITTED ->
+AWAITING_APPROVAL -> APPROVED -> EXECUTING -> COMPLETED, with cancellation,
+rejection/failure branches. Its state transitions/audit transactions, instructor
+ownership, HMAC signatures, single-use consume, expiry and execution-time academic
+rechecks are unchanged. Enrollment is keyed by case ID. A retry reconciles an
+already-created enrollment before claiming another write is needed.
 
-Existing HMAC approval tokens are case-bound, owner-issued, expire after 24 hours,
-and are consumed once. Enrollment uses case ID as its idempotency key. Execution
-rechecks academic rules and reconciles an already-completed write. This branch
-does not alter those safeguards or reset any database.
+`jobs.py` adds a unique job per case with operational metadata only. Nausher must
+call `enqueue_execution` inside the approval transaction, after its state change
+but before commit. The helper requires an active transaction and never commits it.
+`worker-handoff.md` gives the exact hook; an outer `with conn` around the existing
+`decide` call would NOT suffice because `record_decision` already commits internally.
 
-Durable state does not itself schedule work after a restart. `jobs.py` and
-`worker.py` now implement leased jobs and recovery with a service-only FE operation
-accepting case ID. Nausher must wire atomic enqueue into the approval transaction
-and implement that endpoint. Student/section are resolved by FE from saved state.
-No student/instructor token is relabelled. Expired approval requires review while
-retaining the case. See the worker handoff for exact transaction and retry behavior.
+The worker claims with a short BEGIN IMMEDIATE transaction and fenced lease token,
+then releases the DB lock before network I/O. Lease expiry recovers crashes; stale
+acknowledgements cannot overwrite a new claimant. Transport/timeouts retry the same
+case with capped exponential backoff. An overall deadline bounds service calls.
+Authentication/protocol failures become blocked operational jobs, not academic
+rejections; operators explicitly retry them after repair. Terminal outcomes retain
+an error identifier and case reference. Leases do not replace FE/Zambeel concurrency
+and enrollment-idempotency enforcement.
 
-## 7. Code changes
+`worker.py:ServiceExecutor` calls only `execute_approved_case(case_id)`, never a
+model tool. MSAL client credentials acquire an FE application token independently
+of user presence. FE must require `Cases.ExecuteApproved` plus the explicit worker
+app identity; FE -> Zambeel uses its separate restricted permission. Those server
+endpoints/permissions are not yet published. The 24-hour approval expiry remains
+enforced: expired unconsumed approval stops for review, while Entra user-token
+expiry does not invalidate a confirmed case. Recovery hooks exist for SUBMITTED
+cases but require FE's trusted academic context; the external execution worker
+does not invent a student-impersonation routing permission.
 
-| File | Change and purpose | Verification |
+## 7. Exact code changes and decisions
+
+| File/group | Change / reason | Verification |
 |---|---|---|
-| `api/auth.py` | Signed-token verification, mapping and global resource guards | Synthetic RSA and API ownership tests |
-| `api/app.py` | Global authorization, `/api/me`, Bearer CORS/challenges | API regression suite |
-| `api/__main__.py` | Accurate mode/loopback description | Review |
-| `pyproject.toml`, `uv.lock` | Explicit PyJWT crypto dependency (previously transitive) | Frozen dependency sync |
-| `.env.example` | Non-secret API-boundary settings and limitations | Review/configuration tests |
-| `tests/test_api_auth.py` | Invalid credentials, roles, identity conflicts and route guards | Pytest |
-| This document | Actual contributions, operation and pending integration | Code cross-check |
-| `jobs.py`, `worker.py` | Durable outbox, fenced leases, recoverable service execution client | Worker failure/concurrency tests |
-| `tests/test_worker.py`, `docs/worker-handoff.md` | Worker contract tests and exact FE integration handoff | Focused pytest/review |
+| `api/bff.py`, `api/auth.py` | MSAL login, encrypted sessions/cache, CSRF, mapping and route ownership | Mock flow, synthetic RSA, expiry/replay/isolation tests |
+| `context.py`, `api/events.py`, `api/app.py` | Verified context, detached-thread propagation, sanitized stream failures, instructor decision separation | Real graph/API and disconnect regression tests |
+| `mcp/authenticated.py`, `mcp/client.py`, `clients.py`, `tools/common.py` | Resource tokens, no identity override/fallback, preserve pauses/stop on reauthentication | Fake transport + real MCP regression |
+| `api/views.py`, `reconciliation.py` | MCP-backed case projection and deterministic terminal graph/memory repair | Saved enrollment/paused checkpoint tests |
+| `jobs.py`, `worker.py` | Outbox, leases, backoff, app token client and recovery | Concurrency/crash/lost-response tests |
+| Frontend `App.tsx`, `api/auth.ts`, `api/httpApi.ts`, `api/types.ts` | Sign-in gate, cookie/CSRF transport, stale-response and 401/stream reauthentication reset | Typecheck/build, headless browser smoke |
+| Frontend `AppContext.tsx`, `Sidebar.tsx`, `ChatView.tsx` | Fixed authenticated identity, no demo switching, serial polling, recovered outcome display | Browser smoke + review |
+| `config.py`, `api/__main__.py` | Explicit private env selection, lazy model startup, suppress callback access logs | Real discovery/redirect and regression |
+| `.env.example`, `.gitignore`, `seed/entra-users.example.json`, dependency/lock files | Non-secret setup, ignored local credentials, explicit crypto/MSAL dependencies | Frozen sync, secret/ignore checks |
+| `tests/test_api_auth.py`, `test_bff.py`, `test_authenticated_mcp.py`, `test_reconciliation.py`, `test_worker.py`, `browser-auth.cjs` | Meaningful auth/workflow/failure/browser tests | Test commands below |
+| Engineering/worker docs, build plan, decisions, crosswalk, frontend README | Explain actual contributions and pending acceptance | Code/contract cross-check |
 
-Global authorization was chosen to cover all existing routes, including reads,
-stop, notification writes and resume. Protecting only message endpoints would
-leave memory/history and other direct-object references exposed. Existing route
-contracts remain compatible, with mismatched IDs refused rather than trusted.
+Chosen alternatives: backend sessions rather than browser bearer/OBO follows the
+team's handoff; explicit wrappers rather than blind MCP discovery preserve tool
+permissions; existing sync graph/workers rather than an async persistence rewrite
+preserve working checkpoints; deterministic reconciliation rather than a worker
+LLM avoids giving service credentials a student agent's powers. React review kept
+session effects stable and guarded stale asynchronous status responses after logout.
 
-## 8. Execution trace
+## 8. End-to-end execution trace
 
-Locally tested API-boundary example: a synthetic RS256 harness token maps to S1.
-ApiAuthorization verifies it, compares request IDs to S1, and admits session
-creation. A request for S2's profile/memory is refused. A teacher token can list
-I1's pending cases but cannot read/stop S1's chat session. Missing/expired
-credentials fail before message streaming starts.
+The tested synthetic flow uses a fake MSAL provider, real API/graph/persistence and
+explicitly fake MCP transport. Browser login/callback maps S1, cookie+CSRF admit
+session creation, and `RunTranslator` passes verified non-secret context. A profile
+tool calls Zambeel through the authenticated capability inherited by the worker.
 
-The baseline tested FE path still runs confirmation -> deterministic submission
--> instructor owner decision -> signed approval consumption -> one enrollment
--> audit/notification/case note. This increment has not demonstrated that entire
-path through live Entra or authenticated MCP. Synthetic signatures are labelled
-test credentials, not proof of portal configuration.
+The FE test submits CS412-S1, persists confirmation, and reaches instructor pause.
+A simulated FE worker uses the REAL local deterministic approval/enrollment gates.
+A timeout after the enrollment write is retried with the SAME case ID; one enrollment
+exists and audit integrity passes. Later reconciliation closes the old graph pause
+and writes S1's note; S2 cannot see it. A separate API test verifies instructor
+decisions call FE and never mint locally or resume the student with instructor auth.
 
-## 9. Tests and correctness
+These tests do not claim real Microsoft token issuance or a live authenticated FE
+endpoint. The real discovery/login redirect check reached Microsoft's authority,
+but no interactive callback/token exchange or full live enrollment was completed.
 
-Baseline previously executed: 240 passed, 11 live tests deselected.
-Full offline regression: 253 passed, 11 live tests deselected (131.48 seconds).
-Two additional security tests were then added. The final focused run of
-`test_api_auth.py`, `test_api_runs.py`, `test_api_views.py` and
-`test_api_disconnect.py` passed all 40 tests; the authentication module alone
-passed 15 tests. Live Entra/MCP/Sakai acceptance remains pending.
-Frontend `npm run typecheck` and `npm run build` passed. `npm ci` reported three
-existing development dependency advisories; `npm audit --omit=dev` reported zero.
-No dependency upgrades were applied to the frontend.
+## 9. Testing and correctness
 
-Security tests catch wrong issuer/audience/tenant/version, expired credentials,
-missing scope, incompatible role, unknown mapping, forged signatures, algorithm
-substitution, malformed tokens, conflicting browser IDs, student instructor-route
-access, cross-user memory/history/stop access and pre-stream authentication failure.
-Mode tests prevent typo fallback and Entra API -> demo MCP credential propagation.
-Existing tests cover approval integrity, eligibility races, checkpoints, enrollment
-idempotency, sub-agent isolation and disconnect behavior.
+Baseline: 240 passed, 11 live deselected. First API increment: 253 full-suite passes;
+worker increment: 286 full-suite passes plus final 32 focused worker passes.
+This BFF increment's final post-review run: **315 passed, 11 live deselected**,
+140.17 seconds (`uv run pytest -q -m "not live"`). Frozen sync, frontend typecheck
+and build, and the headless browser auth smoke passed. Real configuration returned
+200 BFF status and a 302 redirect to Microsoft's authority. No interactive
+callback/token exchange, live model or authenticated university-service acceptance
+is claimed. Final submission SHA is in the completion report/Git history.
 
-## 10. Supervisor questions
+Tests catch forged/wrong-resource/expired bearer credentials; missing roles/scopes;
+unmapped users; callback state mismatch, absent binding cookie and replay; CSRF and
+Origin mismatch; cookie/cache tampering; cache survival and concurrent updates;
+student/instructor impersonation; pre-stream refusal; safe operational retry;
+separate MCP tokens, no actor override or demo fallback; and no credentials in
+checkpoint messages. Existing approval/academic race/HITL/sub-agent tests remain.
+Worker tests specifically catch a write completed before response loss and stale
+lease acknowledgement. Reconciliation refuses APPROVED as if it were COMPLETED.
 
-- Why MCP? It provides a separately authenticated system/process contract; direct
-  shared database access is still a migration gap in current dashboard views.
-- Can the LLM choose another student? Model tool arguments do not select identity;
-  API requests must match the server mapping before existing context is built.
-- Is HITL enough? No. Approval ownership, signature, expiry, single-use consumption
-  and academic rechecks remain deterministic workflow conditions.
-- What if a token expires? The next bearer request fails verification. Browser
-  session/user-cache renewal remains pending. Worker application tokens are
-  acquired independently through MSAL; no demo fallback occurs.
-- What if the process crashes? Checkpoints/cases survive; worker leases expire and
-  approved/in-flight jobs are rediscovered. Full automatic completion still needs
-  FE's atomic enqueue and service endpoint, plus graph/UI reconciliation.
-- Why no async persistence rewrite? Current worker-based MCP integration already
-  works; no evidence requires replacing the workflow engine for this increment.
-- What protects memory? Verified route ownership plus existing context-selected
-  student namespace and write-protected virtual filesystem.
-- What is outside this branch? Tenant provisioning, server-side MCP authorization,
-  Sakai installation, Oracle/DNS/proxy administration, real PeopleSoft integration.
+The optional Playwright smoke uses fake auth/API responses against the real built
+React UI: sign-in gate, mapped S1/no switcher, CSRF logout, 401 clearing and mobile
+overflow. It is not live Entra acceptance. Frontend typecheck/build pass. Integrity
+checks on the newly initialized local simulator pass (zero cases at bootstrap).
+The model-dependent tool-list script requires HARNESS_MODEL; no live model settings
+were provided. Equivalent tool-permission tests use the installed graph offline.
+
+## 10. Supervisor questions and engineering answers
+
+- **How does MCP know the student?** It must validate its resource-specific token
+  and map verified tenant/object ID. The model never chooses a student argument.
+- **Why both API and MCP authorization?** The API protects its sessions/history;
+  each service independently protects its records and business operations.
+- **Why not send ID tokens?** Their audience is the harness. MCP requires its own
+  access token and scope/role checks; one API token cannot stand in for another.
+- **What if user tokens expire?** MSAL attempts renewal from its encrypted cache;
+  interaction-required asks for sign-in again. The saved case is not cancelled.
+- **What if the student goes offline?** The agreed worker uses app credentials and
+  saved approval; this needs FE's pending endpoint/outbox wiring to operate live.
+- **What if MCP goes down?** Retry/reload preserves case ID/checkpoint. Worker
+  transport errors back off; unknown/auth failures are operational review items.
+- **Why isn't HITL authorization?** A human pause alone cannot enforce instructor
+  ownership, signature, expiry, consume-once or changed academic eligibility.
+- **How do restarts work?** Cases, checkpoints, encrypted sessions/cache and job
+  leases persist. Keep the encryption key. Worker recovery does not rely on cookies.
+- **Why no write tools for sub-agents?** Tool allowlists enforce separation even
+  if instructions/model output are wrong. The worker endpoint is never model-visible.
+- **What remains external?** MCP token validation/service permissions, atomic FE
+  hook, instructor provisioning, missing dashboard contracts, Sakai and deployment.
 
 ## 11. Running and demonstrating
 
-From repository root, PowerShell:
+From repo root, PowerShell:
 
 ```powershell
 uv sync --frozen
 uv run pytest -q -m "not live"
-uv run pytest -q tests/test_api_auth.py
-# Existing demo only; configure model + approval secret in ignored .env first.
-$env:HARNESS_AUTH_MODE = 'demo'
+uv run pytest -q tests/test_bff.py tests/test_authenticated_mcp.py tests/test_reconciliation.py tests/test_worker.py
+# Private local BFF config is ignored. Supply HARNESS_CLIENT_SECRET securely.
+$env:HARNESS_ENV_FILE = '.env.bff.local'
 uv run python -m harness.api
-# Optional existing demo MCP services, separate terminals:
-uv run python -m harness.mcp zambeel
-uv run python -m harness.mcp fe
-# Frontend, separate terminal:
+# In a separate terminal:
 cd frontend
+$env:VITE_USE_MOCK = 'false'
+$env:VITE_API_BASE_URL = 'http://localhost:8000'
 npm ci
 npm run typecheck
 npm run build
-$env:VITE_USE_MOCK = 'false'
-npm run dev
+npm run dev -- --host localhost
 ```
 
-Use the existing synthetic S1/CS412-S1 confirmation and I1 approval demo. MCP
-services require the existing local service secret; enable HARNESS_USE_MCP only
-in demo mode. Never use demo identity on a public deployment.
+Use localhost consistently with the registered callback. Open localhost:5173 and
+sign in as the mapped project account. Model settings are still required to run
+an actual agent; login itself starts lazily without fabricating a model. For a
+new simulator only, `uv run python scripts/seed.py --db data/harness.db` seeds it
+and refuses an existing file. Never use --reset on records that must be preserved.
 
-For isolated Entra API-boundary validation set `HARNESS_AUTH_MODE=entra`, tenant,
-harness API audience/scope and `HARNESS_IDENTITY_MAP`; leave demo MCP disabled.
-Use a correctly scoped harness access token from the eventual agreed client.
-The current React application still has demo account selection and no MSAL login,
-so it cannot yet serve as an authenticated demonstration. Synthetic API tests
-are the reproducible boundary demonstration without external credentials.
+Existing DEMO services run in separate terminals with demo configuration:
+`uv run python -m harness.mcp fe` and `uv run python -m harness.mcp zambeel`.
+They do not suddenly accept Entra tokens. Authenticated mode sends bearer tokens
+only and fails if pointed at those old demo servers. Use Nausher's authenticated
+versions for live integration. Worker configuration/commands and the exact approval
+hook are in [worker-handoff.md](worker-handoff.md).
 
-## 12. Submission and remaining dependencies
+Optional browser smoke: build with VITE_USE_MOCK=false, make Playwright available
+to Node, then `node tests/browser-auth.cjs` (PLAYWRIGHT_CHANNEL=msedge is supported).
+It starts/stops its own preview and explicitly intercepts fake authentication/API.
 
-Partial branch increment only; no claim of full WP7 completion. See Git history
-for this increment's SHA (a commit cannot contain its own final SHA).
-Completed: optional API credential verification and ownership boundary, preserved
-demo mode, isolated security tests. Pending: real registration/mapping provisioning,
-backend-managed browser sessions/user MCP tokens, dashboard MCP coverage, live FE
-service endpoint/atomic enqueue wiring, graph reconciliation, Sakai integration
-and live acceptance. Worker implementation and tests are now available; live
-unattended completion is not yet verified.
+Hosted mode requires HTTPS, secure cookies, exact origins/redirects, protected
+persistent key/cache files and a single API process for the current run locks.
+Do not share the private config or copy backend secrets into VITE variables.
+
+## 12. Submission and limitations
+
+Submit only `origin/ammar`; main remains unchanged. Local `.env.bff.local`, auth
+database/key, synthetic simulator and browser screenshots are ignored. The supplied
+harness secret is private backend configuration; expiry reported as 2027-05-15.
+
+Implemented agent-side code is locally verified. Full live completion remains
+dependent on Nausher's authenticated endpoints, atomic approval/job integration,
+worker identity/permissions and FE-side submission recovery; instructor account
+and role/mapping; model credentials; and the later Sakai contract/deployment.
+Notifications/instructor lists are explicitly unavailable in BFF mode until an
+agreed server interface exists. API and FE currently share the simulator database
+for case/checkpoint coordination. Those limitations must be stated in the demo.
+No mock, redirect-only check or offline success is labelled full live acceptance.

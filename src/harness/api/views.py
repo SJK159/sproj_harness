@@ -115,6 +115,26 @@ def case_detail(conn: sqlite3.Connection, case_id: str) -> dict[str, Any] | None
             "instructor_id": get_section(conn, row["offering_id"])["instructor_id"]}
 
 
+def remote_case_detail(conn, case_id, actor, role):
+    """Project the existing FE case/audit contract into the existing UI shape.
+
+    Section owner is non-personal catalogue metadata in the local simulator;
+    FE authorizes the case before returning personal records. No token fields
+    or extra server response fields are forwarded to the browser.
+    """
+    from harness.mcp.client import call
+    value = call("fe", "get_case_status", {"case_id":case_id}, actor=actor, role=role)
+    case = value["case"]
+    audit = [audit_view(row) if isinstance(row.get("detail"), (str, type(None))) else dict(row) for row in value["audit"]]
+    owner = get_section(conn, case["offering_id"])["instructor_id"]
+    decision = next((r for r in reversed(audit) if r["action"] in ("APPROVE", "REJECT")), None)
+    enrolled = next((r for r in reversed(audit) if r["action"] == "ENROLLED"), None)
+    return {"case":case_view(conn, case), "audit":audit, "instructor_id":owner,
+            "approval": {"instructor_id":decision["actor"], "decision":decision["action"],
+                "reason":(decision["detail"] or {}).get("reason"), "created_at":decision["timestamp"]} if decision else None,
+            "enrollment": {"enrollment_id":enrolled["detail"]["enrollment_id"], "kind":enrolled["detail"]["kind"]} if enrolled else None}
+
+
 def pending_for(conn: sqlite3.Connection, instructor_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """SELECT c.* FROM cases c JOIN offerings o ON o.offering_id = c.offering_id

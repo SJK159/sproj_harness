@@ -5,6 +5,7 @@ Both modes bind to loopback; see docs/ammar-agent-integration.md for current lim
 """
 
 import argparse
+import os
 
 import uvicorn
 
@@ -15,7 +16,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
-    uvicorn.run(create_app(), host="127.0.0.1", port=args.port)
+    app = create_app()
+    # OAuth callback query strings contain one-time authorization codes.
+    uvicorn.run(app, host="127.0.0.1", port=args.port, access_log=os.environ.get("HARNESS_AUTH_MODE") != "bff")
 
 
 if __name__ == "__main__":

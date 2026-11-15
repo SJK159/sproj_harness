@@ -1,5 +1,32 @@
 # Decision log
 
+## 2026-11-16: Ammar BFF and authenticated orchestrator integration
+
+Adopt Nausher's later backend-managed login/cookie/cache handoff instead of the
+earlier browser-bearer/OBO proposal. MSAL owns auth-code/PKCE/state/nonce and user
+token renewal. Encrypted SQLite stores sessions/caches; browser gets an opaque
+HttpOnly cookie and a separate CSRF value. Exact Origin plus CSRF protect writes.
+Stable `(tid, oid)` operator mapping determines context; downstream MCPs separately
+authorize their own access-token scopes/roles. Do not infer mock IDs from email.
+
+Preserve explicit tools, installed HITL names, sync graph/checkpointers and demo
+operation. Copy only the request transport capability into detached execution;
+never serialize credentials into graph/model/memory. Operational MCP failures keep
+confirmation resumable. Resource-specific tokens never substitute for one another.
+
+BFF instructor decisions call FE rather than resuming a student with instructor
+credentials. A separate leased app-authenticated worker completes approved cases.
+FE must implement the atomic approval/outbox hook and service-only endpoint. Its
+absence is not hidden by direct local enrollment. Deterministic terminal graph
+repair uses saved case/enrollment records and writes case-derived memory without
+calling a model. Unknown graph changes fail review instead of bypassing gates.
+
+Dashboard operations use existing MCP contracts where available. Missing FE
+notification/instructor-list and Sakai contracts are explicit unavailable states,
+not invented schemas or SQL bypasses. Shared SQLite case coordination remains an
+explicit single-VM deployment assumption. See the engineering/worker guides for
+tests and live acceptance limits.
+
 Format: date, decision, why, alternatives considered.
 
 ## 2026-09 (proposal stage)

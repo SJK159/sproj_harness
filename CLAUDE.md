@@ -7,6 +7,14 @@ This repo is the orchestrator: one deep agent (LangChain `deepagents`, running o
 
 ## Current target
 
+2026-11-16 integration: Ammar's `ammar` branch adds backend-managed Entra login,
+authenticated MCP transport, verified identity, durable worker components and
+terminal graph/memory reconciliation. See `docs/ammar-agent-integration.md` and
+`docs/infrastructure-crosswalk.md` for implemented versus pending status. The
+flow below remains the local demo. BFF decisions go to FE; the service worker
+completes approved cases without student presence. Nausherwan owns MCP server
+authorization/permissions; those external changes are not claimed complete here.
+
 Force enrollment, end to end:
 
 1. Student asks for force enrollment in a course (CLI chat).
@@ -24,12 +32,15 @@ Deep agent concepts this build must exercise: planning (`write_todos`, opt-in in
 
 ## Out of scope right now
 
-Do not build these even if they seem helpful: RAG or a vector store, real Zambeel / PeopleSoft calls, authentication or deployment of the web frontend (it is a local demo), multiple domain agents or agent swarms, TA-ship, advising, LMS, Outlook.
+Still outside this branch: RAG/vector store, real PeopleSoft integration, unrelated
+domain agents/workflows, TA-ship, advising, Outlook and infrastructure administration.
+The November assignment brings agent-side authentication/frontend integration into
+scope. Sakai awaits the teammate contract; no synthetic results are presented as live.
 
 ## Non-negotiable invariants
 
 1. No enrollment write without a valid approval. `execute_enrollment` itself verifies the approval token (HMAC signature, expiry, single use, bound to this case_id) and refuses otherwise. This gate is deterministic Python, never a prompt instruction. `interrupt_on` is how the human is asked; the token check is the security.
-2. Approval tokens are minted only by `scripts/approve.py` (instructor side). No tool the agent can call may mint one.
+2. Approval tokens are minted only on an authorized instructor decision path (CLI/API/FE service). No model-visible tool may mint one. Integrated mode keeps APPROVAL_SECRET in FE only.
 3. Idempotency: the mock enrollment call uses case_id as the idempotency key. A retry returns the existing result and never enrolls twice. `enroll` re-checks the section's FE cap at execution time, so an approved case can still end FAILED if the cap filled after approval.
 4. Every case state transition writes an `audit_events` row: case_id, actor, action, from_state, to_state, timestamp, detail.
 5. A student only ever sees their own data and cases. Tools read student_id from the runtime context, not from arguments the LLM fills in.

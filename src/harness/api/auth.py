@@ -64,7 +64,7 @@ class EntraVerifier:
 
 def configured_verifier():
     mode = os.environ.get("HARNESS_AUTH_MODE", "demo")
-    if mode == "demo":
+    if mode in ("demo", "bff"):
         return None
     if mode != "entra":
         raise ValueError("HARNESS_AUTH_MODE must be demo or entra")
@@ -77,18 +77,35 @@ def configured_verifier():
 
 
 class ApiAuthorization:
-    def __init__(self, verifier):
-        self.verifier = verifier
+    def __init__(self, verifier, bff=None):
+        self.verifier, self.bff = verifier, bff
 
     async def __call__(self, request: Request):
-        if self.verifier is None:
+        from harness.mcp.authenticated import current_transport, AuthenticatedMCP
+        current_transport.set(None)
+        if self.bff and request.url.path.startswith("/auth/"):
+            return  # Router owns login/callback verification and logout CSRF.
+        if self.bff:
+            from starlette.concurrency import run_in_threadpool
+            reference, data, person = await run_in_threadpool(self.bff.session, request)
+            if request.method not in ("GET", "HEAD", "OPTIONS"):
+                self.bff.check_csrf(request, data)
+            if request.method == "POST" and request.url.path.endswith(("/messages", "/resume")):
+                # Resolve interaction-required before launching an SSE worker.
+                for server in self.bff.settings.scopes:
+                    await run_in_threadpool(self.bff.token, reference, server)
+            current_transport.set(AuthenticatedMCP(person,
+                lambda server:self.bff.token(reference, server),
+                {s:os.environ.get(f"HARNESS_{s.upper()}_MCP_URL", f"http://127.0.0.1:{8101 if s == 'fe' else 8102}/mcp")
+                 for s in self.bff.settings.scopes}, allow_local=os.environ.get("HARNESS_MCP_ALLOW_LOOPBACK") == "true"))
+        elif self.verifier is None:
             return
-        scheme, _, token = request.headers.get("Authorization", "").partition(" ")
-        if scheme.lower() != "bearer" or not token or " " in token:
-            raise HTTPException(401, "Bearer API credentials required", headers={"WWW-Authenticate": "Bearer"})
-        # JWKS retrieval may perform network I/O; keep it off the ASGI event loop.
-        from starlette.concurrency import run_in_threadpool
-        person = await run_in_threadpool(self.verifier.verify, token)
+        else:
+            scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+            if scheme.lower() != "bearer" or not token or " " in token:
+                raise HTTPException(401, "Bearer API credentials required", headers={"WWW-Authenticate": "Bearer"})
+            from starlette.concurrency import run_in_threadpool
+            person = await run_in_threadpool(self.verifier.verify, token)
         request.state.principal = person
         path, params = request.url.path, request.path_params
         def require(actor, role=None):

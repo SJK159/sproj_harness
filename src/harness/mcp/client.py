@@ -21,11 +21,20 @@ class RemoteError(ZambeelError):
 
 
 def enabled():
+    from harness.mcp.authenticated import current_transport
     from harness.mcp.security import principal
+    if current_transport.get() is not None or os.environ.get("HARNESS_AUTH_MODE") == "bff":
+        return True
     return principal.get() is None and os.environ.get("HARNESS_USE_MCP", "").lower() in ("1", "true")
 
 
 async def acall(server, name, arguments=None, *, actor, role="student", service=False):
+    from harness.mcp.authenticated import current_transport
+    transport = current_transport.get()
+    if transport is not None:
+        return await transport.call(server, name, arguments, actor=actor, role=role, service=service)
+    if os.environ.get("HARNESS_AUTH_MODE") == "bff":
+        raise RemoteError("Authenticated MCP context required; demo fallback is disabled")
     from harness.mcp.security import service_secret
     url = os.environ.get(f"HARNESS_{server.upper()}_MCP_URL", f"http://127.0.0.1:{8101 if server == 'fe' else 8102}/mcp")
     parsed = urlsplit(url)

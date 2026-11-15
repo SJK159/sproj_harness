@@ -14,7 +14,7 @@ DATABRICKS_MAX_INPUT_TOKENS = 128_000
 
 def load_env() -> None:
     """Load .env into os.environ. Variables already set in the shell take precedence."""
-    load_dotenv(override=False)
+    load_dotenv(dotenv_path=os.environ.get("HARNESS_ENV_FILE") or None, override=False)
 
 
 def get_model_name() -> str:

@@ -82,4 +82,4 @@ export type RunEvent =
   | { type: "interrupt"; interrupt: Interrupt }
   | { type: "message.delta"; text: string }
   | { type: "message.completed"; message: ChatMessage }
-  | { type: "run.finished"; status: "answered" | "waiting_for_instructor" | "interrupted" | "limit_reached" | "error"; error?: string };
+  | { type: "run.finished"; status: "answered" | "waiting_for_instructor" | "interrupted" | "limit_reached" | "error"; error?: string; reauthenticate?: boolean };

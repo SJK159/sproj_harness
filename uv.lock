@@ -1817,6 +1817,7 @@ name = "sproj-harness"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "deepagents" },
     { name = "fastapi" },
     { name = "langchain" },
@@ -1837,6 +1838,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=44" },
     { name = "deepagents" },
     { name = "fastapi", specifier = ">=0.143.3" },
     { name = "langchain" },

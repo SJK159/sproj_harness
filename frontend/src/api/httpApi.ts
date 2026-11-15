@@ -1,5 +1,6 @@
 import type { ApiClient, Decision, DecisionResult, ResumeBody, RunStream } from './client';
 import { ApiError } from './errors';
+import { authenticationLost, csrfHeaders } from './auth';
 import type {
   Case, CaseDetail, ChatMessage, InstructorSummary, Memory, Notification, Profile, RunEvent, Session, StudentSummary,
 } from './types';
@@ -52,8 +53,10 @@ export function createHttpApi(baseUrl: string): ApiClient {
   async function json<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(base + path, {
       ...init,
-      headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...csrfHeaders(), ...(init?.headers ?? {}) },
     });
+    if (res.status === 401) authenticationLost();
     if (!res.ok) throw new ApiError(res.status, await readError(res));
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
@@ -62,8 +65,12 @@ export function createHttpApi(baseUrl: string): ApiClient {
   function streamFromResponse(resPromise: Promise<Response>, ctrl: AbortController): RunStream {
     async function* gen(): AsyncGenerator<RunEvent> {
       const res = await resPromise;
+      if (res.status === 401) authenticationLost();
       if (!res.ok || !res.body) throw new ApiError(res.status, await readError(res));
-      yield* parseSSE(res.body);
+      for await (const event of parseSSE(res.body)) {
+        if (event.type === 'run.finished' && event.reauthenticate) authenticationLost();
+        yield event;
+      }
     }
     return { events: gen(), stop: () => ctrl.abort() };
   }
@@ -71,7 +78,8 @@ export function createHttpApi(baseUrl: string): ApiClient {
   function post(path: string, body: unknown, ctrl: AbortController): Promise<Response> {
     return fetch(base + path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...csrfHeaders() },
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
@@ -103,6 +111,7 @@ export function createHttpApi(baseUrl: string): ApiClient {
     async decide(caseId, instructor_id, decision: Decision, reason?: string): Promise<DecisionResult> {
       const ctrl = new AbortController();
       const res = await post(`/api/cases/${encodeURIComponent(caseId)}/decision`, { instructor_id, decision, reason }, ctrl);
+      if (res.status === 401) authenticationLost();
       if (!res.ok) return { ok: false, status: res.status, error: await readError(res) };
       return { ok: true, stream: streamFromResponse(Promise.resolve(res), ctrl) };
     },

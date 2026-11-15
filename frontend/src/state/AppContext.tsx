@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api/client';
+import type { SessionIdentity } from '../api/auth';
 import type { InstructorSummary, Notification, Session, StudentSummary } from '../api/types';
 
 export type Role = 'student' | 'instructor';
@@ -7,6 +8,7 @@ export type Theme = 'light' | 'dark' | 'system';
 export type InspectorTab = 'case' | 'memory' | 'profile';
 
 interface AppState {
+  identity?: SessionIdentity;
   role: Role; setRole: (r: Role) => void;
   studentId: string; setStudentId: (id: string) => void;
   instructorId: string; setInstructorId: (id: string) => void;
@@ -43,10 +45,10 @@ function applyTheme(t: Theme) {
   document.documentElement.classList.toggle('dark', dark);
 }
 
-export function AppProvider({ children, onReset }: { children: ReactNode; onReset: () => void }) {
-  const [role, setRoleState] = useState<Role>('student');
-  const [studentId, setStudentIdState] = useState('S1');
-  const [instructorId, setInstructorIdState] = useState('I1');
+export function AppProvider({ children, onReset, identity }: { children: ReactNode; onReset: () => void; identity?: SessionIdentity }) {
+  const [role, setRoleState] = useState<Role>(identity?.role === 'Instructor' ? 'instructor' : 'student');
+  const [studentId, setStudentIdState] = useState(identity ? (identity.role === 'Student' ? identity.actor_id : '') : 'S1');
+  const [instructorId, setInstructorIdState] = useState(identity ? (identity.role === 'Instructor' ? identity.actor_id : '') : 'I1');
   const [students, setStudents] = useState<StudentSummary[] | null>(null);
   const [instructors, setInstructors] = useState<InstructorSummary[] | null>(null);
   const [sessions, setSessions] = useState<Session[] | null>(null);
@@ -64,12 +66,18 @@ export function AppProvider({ children, onReset }: { children: ReactNode; onRese
   const [memoryVersion, setMemoryVersion] = useState(0);
   const actorId = role === 'student' ? studentId : instructorId;
   const actorRef = useRef(actorId);
+  const statesRef = useRef('');
   actorRef.current = actorId;
 
   useEffect(() => {
+    if (identity) {
+      setStudents(identity.role === 'Student' ? [{ student_id: identity.actor_id, name: identity.actor_id, hint: '' }] : []);
+      setInstructors(identity.role === 'Instructor' ? [{ instructor_id: identity.actor_id, name: identity.actor_id, sections: [] }] : []);
+      return;
+    }
     void api.listStudents().then(setStudents).catch(() => setStudents([]));
     void api.listInstructors().then(setInstructors).catch(() => setInstructors([]));
-  }, []);
+  }, [identity]);
 
   useEffect(() => {
     applyTheme(theme);
@@ -87,6 +95,10 @@ export function AppProvider({ children, onReset }: { children: ReactNode; onRese
     try {
       const s = await api.listSessions(id);
       if (actorRef.current === id) {
+        const states = s.map((row) => `${row.session_id}:${row.case?.state ?? ''}`).sort().join('|');
+        if (states !== statesRef.current) {
+          statesRef.current = states; setCaseVersion((v) => v + 1); setMemoryVersion((v) => v + 1);
+        }
         setSessions((prev) => {
           const extra = (prev ?? []).filter((p) => p.title === 'New chat' && !s.some((x) => x.session_id === p.session_id));
           return [...extra, ...s];
@@ -98,12 +110,25 @@ export function AppProvider({ children, onReset }: { children: ReactNode; onRese
   }, [role, studentId]);
 
   const refreshNotifications = useCallback(async () => {
+    if (identity) return; // FE has no notification contract yet; UI labels this unavailable.
     const id = actorId;
     try {
       const n = await api.listNotifications(id);
       if (actorRef.current === id) setNotifications(n);
     } catch { /* keep previous */ }
-  }, [actorId]);
+  }, [actorId, identity]);
+
+  useEffect(() => {
+    if (!identity || role !== 'student') return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      await refreshSessions();
+      if (!stopped) timer = setTimeout(() => { void poll(); }, 5000);
+    };
+    timer = setTimeout(() => { void poll(); }, 5000);
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [identity, role, refreshSessions]);
 
   useEffect(() => {
     setSessions(null);
@@ -153,7 +178,9 @@ export function AppProvider({ children, onReset }: { children: ReactNode; onRese
   }, []);
 
   const value = useMemo<AppState>(() => ({
-    role, setRole: setRoleState, studentId, setStudentId: setStudentIdState, instructorId, setInstructorId: setInstructorIdState, actorId,
+    identity, role, setRole: (r) => { if (!identity) setRoleState(r); },
+    studentId, setStudentId: (id) => { if (!identity) setStudentIdState(id); },
+    instructorId, setInstructorId: (id) => { if (!identity) setInstructorIdState(id); }, actorId,
     students, instructors, sessions, refreshSessions, patchSession,
     activeSessionId, setActiveSessionId, chatNonce, openSession, newChat,
     view, setView, reviewCaseId, setReviewCaseId: (id) => { setReviewCaseId(id); closeMobileNav(); },
@@ -164,7 +191,7 @@ export function AppProvider({ children, onReset }: { children: ReactNode; onRese
     caseVersion, bumpCase: () => setCaseVersion((v) => v + 1),
     memoryVersion, bumpMemory: () => setMemoryVersion((v) => v + 1),
     resetDemo: () => { api.resetDemo?.(); onReset(); },
-  }), [role, studentId, instructorId, actorId, students, instructors, sessions, refreshSessions, patchSession, activeSessionId, chatNonce,
+  }), [identity, role, studentId, instructorId, actorId, students, instructors, sessions, refreshSessions, patchSession, activeSessionId, chatNonce,
     openSession, newChat, view, reviewCaseId, notifications, refreshNotifications, pushNotification, markAllRead, inspectorOpen, inspectorTab,
     sidebarOpen, mobileNavOpen, theme, caseVersion, memoryVersion, onReset]);
 

@@ -20,6 +20,7 @@ import secrets
 import sqlite3
 import threading
 import time
+import contextvars
 from collections.abc import Iterator
 from contextlib import closing
 from typing import Annotated, Any, Literal
@@ -35,6 +36,9 @@ from pydantic import BaseModel
 
 from harness.api import views
 from harness.api.auth import ApiAuthorization, configured_verifier
+from harness.api.bff import configured_bff
+from harness.mcp.client import call as mcp_call
+from harness.mcp.authenticated import ReauthenticationRequired
 from harness.api.events import RunTranslator, run_events
 from harness.approvals import NotCourseOwner
 from harness.cases import InvalidTransition
@@ -45,8 +49,9 @@ from harness.clients import (
     prepare_confirmation,
     record_instructor_decision,
 )
-from harness.mock_zambeel import UnknownStudent
+from harness.mock_zambeel import UnknownStudent, ZambeelError
 from harness.workflow import WorkflowRefused
+from harness.reconciliation import reconcile_finished
 
 TITLE_CHARS = 60
 LOCAL_ORIGIN = r"http://(localhost|127\.0\.0\.1|\[::1\]):\d+"  # matched against the whole Origin header
@@ -117,26 +122,62 @@ class Run:
         self.events: queue.SimpleQueue[dict[str, Any] | None] = queue.SimpleQueue()
 
 
-def create_app(agent: Any = None, store: BaseStore | None = None, *, verifier: Any = None) -> FastAPI:
+class DeferredAgent:
+    """Let sign-in work before model credentials are provisioned. No mock fallback."""
+    def __init__(self, factory):
+        self.factory, self.value, self.lock = factory, None, threading.Lock()
+
+    def __getattr__(self, name):
+        with self.lock:
+            if self.value is None:
+                try:
+                    self.value = self.factory()
+                except Exception:
+                    raise HTTPException(503, "Agent unavailable; configure the model and backend credentials") from None
+        return getattr(self.value, name)
+
+
+def create_app(agent: Any = None, store: BaseStore | None = None, *, verifier: Any = None, bff: Any = None) -> FastAPI:
     from harness.config import load_env
     load_env()
-    authorization = ApiAuthorization(verifier if verifier is not None else configured_verifier())
+    bff = bff or configured_bff()
+    authorization = ApiAuthorization(verifier if verifier is not None else configured_verifier(), bff)
     if agent is None:
         from harness.agent import build_agent
         from harness.persistence import open_checkpointer, open_store
 
         store = store or open_store()
-        agent = build_agent(checkpointer=open_checkpointer(), store=store)
+        from harness.config import get_chat_model
+        factory = lambda:build_agent(model=get_chat_model(), checkpointer=open_checkpointer(), store=store)
+        agent = DeferredAgent(factory) if bff else factory()
     if store is None:
         from harness.persistence import open_store
 
         store = open_store()
 
     app = FastAPI(title="LUMS force-enrollment harness API", dependencies=[Depends(authorization)])
+    app.state.bff = bff
+    if bff:
+        app.include_router(bff.router())
+    else:
+        @app.get("/auth/status")
+        def demo_status():
+            return {"mode":"entra" if authorization.verifier else "demo", "authenticated":False}
     # Any port on this machine (Vite moves to 5174 when 5173 is taken); HARNESS_CORS_ORIGINS adds exact origins.
     extra = [o.strip() for o in os.environ.get("HARNESS_CORS_ORIGINS", "").split(",") if o.strip()]
-    app.add_middleware(CORSMiddleware, allow_origins=extra, allow_origin_regex=LOCAL_ORIGIN,
-                       allow_methods=["GET", "POST"], allow_headers=["Content-Type", "Accept", "Authorization"])
+    if bff and "*" in extra:
+        raise ValueError("BFF requires explicit frontend origins")
+    app.add_middleware(CORSMiddleware, allow_origins=[*extra, *([bff.settings.frontend.rstrip('/')] if bff else [])],
+                       allow_origin_regex=None if bff else LOCAL_ORIGIN, allow_credentials=bool(bff),
+                       allow_methods=["GET", "POST"], allow_headers=["Content-Type", "Accept", "Authorization", "X-CSRF-Token"])
+
+    @app.middleware("http")
+    async def private_responses(request, call_next):
+        response = await call_next(request)
+        if bff:
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Referrer-Policy"] = "no-referrer"
+        return response
     runs = Runs()
     app.state.runs = runs  # tests wait on it (idle)
 
@@ -144,12 +185,20 @@ def create_app(agent: Any = None, store: BaseStore | None = None, *, verifier: A
     async def http_error(request: Request, exc: HTTPException) -> JSONResponse:
         return JSONResponse({"error": str(exc.detail)}, status_code=exc.status_code, headers=exc.headers)
 
+    @app.exception_handler(ZambeelError)
+    async def remote_error(request: Request, exc: ZambeelError):
+        return JSONResponse({"error":"MCP operation unavailable or refused; retry or sign in again"}, status_code=502)
+
+    @app.exception_handler(ReauthenticationRequired)
+    async def reauthenticate(request: Request, exc: ReauthenticationRequired):
+        return JSONResponse({"error":"Sign in again to continue; saved case state is retained"}, status_code=401)
+
     @app.get("/api/me")
     def current_user(request: Request):
         person = getattr(request.state, "principal", None)
         if person is None:
             return {"mode": "demo"}
-        return {"mode": "entra", "actor_id": person.actor_id, "role": person.role}
+        return {"mode": "bff" if bff else "entra", "actor_id": person.actor_id, "role": person.role}
 
     @app.exception_handler(RequestValidationError)
     async def bad_request(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -181,7 +230,8 @@ def create_app(agent: Any = None, store: BaseStore | None = None, *, verifier: A
                 run.events.put(None)
 
         try:
-            threading.Thread(target=work, name=f"run-{session_id}", daemon=True).start()
+            context = contextvars.copy_context()
+            threading.Thread(target=context.run, args=(work,), name=f"run-{session_id}", daemon=True).start()
         except BaseException:
             runs.finish(session_id)
             raise
@@ -191,6 +241,18 @@ def create_app(agent: Any = None, store: BaseStore | None = None, *, verifier: A
         """Relay the worker's events. If the client goes away this generator is simply abandoned."""
         while (event := run.events.get()) is not None:
             yield ServerSentEvent(data=event, event=event["type"])
+
+    def reconcile_owned(conn, student_id, case_id):
+        row = views.get_case_row(conn, case_id)
+        if row is None or row["state"] not in ("COMPLETED", "FAILED", "REJECTED", "CANCELLED") or not runs.idle(case_id):
+            return
+        if bff:
+            # Confirm that the separately authenticated FE service agrees before
+            # using its shared DB record to close a local graph pause.
+            remote = mcp_call("fe", "get_case_status", {"case_id":case_id}, actor=student_id)
+            if remote["case"]["state"] != row["state"]:
+                raise HTTPException(409, "Case state is still being reconciled")
+        reconcile_finished(conn, agent, store, case_id, student_id)
 
     # ------------------------------------------------------------------------------------------- people
 
@@ -205,16 +267,24 @@ def create_app(agent: Any = None, store: BaseStore | None = None, *, verifier: A
     @app.get("/api/students/{student_id}/profile")
     def get_profile(student_id: str, conn: Db) -> dict[str, Any]:
         try:
+            if bff:
+                return mcp_call("zambeel", "get_my_profile", actor=student_id)
             return views.profile(conn, student_id)
         except UnknownStudent as exc:
             raise HTTPException(404, str(exc)) from exc
 
     @app.get("/api/students/{student_id}/sessions")
     def list_sessions(student_id: str, conn: Db) -> list[dict[str, Any]]:
+        if bff:
+            for row in conn.execute("SELECT case_id FROM cases WHERE student_id = ?", (student_id,)).fetchall():
+                reconcile_owned(conn, student_id, row[0])
         return views.sessions_of(conn, agent, student_id)
 
     @app.get("/api/students/{student_id}/cases")
     def list_cases(student_id: str, conn: Db) -> list[dict[str, Any]]:
+        if bff:
+            summaries = mcp_call("fe", "get_my_cases", actor=student_id)["cases"]
+            return [views.remote_case_detail(conn, row["case_id"], student_id, "student")["case"] for row in summaries]
         return views.cases_of(conn, student_id)
 
     @app.get("/api/students/{student_id}/memory")
@@ -223,10 +293,14 @@ def create_app(agent: Any = None, store: BaseStore | None = None, *, verifier: A
 
     @app.get("/api/students/{recipient_id}/notifications")  # also serves instructor ids
     def list_notifications(recipient_id: str, conn: Db) -> list[dict[str, Any]]:
+        if bff:
+            raise HTTPException(503, "FE notification interface is not available yet")
         return views.notifications_for(conn, recipient_id)
 
     @app.post("/api/notifications/read", status_code=204)
     def mark_read(body: ReadBody, conn: Db) -> Response:
+        if bff:
+            raise HTTPException(503, "FE notification interface is not available yet")
         with conn:
             conn.executemany("UPDATE notifications SET read_at = ? WHERE notification_id = ? AND read_at IS NULL",
                              [(views.now(), i) for i in body.ids])
@@ -248,6 +322,8 @@ def create_app(agent: Any = None, store: BaseStore | None = None, *, verifier: A
     def get_messages(session_id: str, conn: Db) -> list[dict[str, Any]]:
         if views.session_owner(conn, session_id) is None:
             raise HTTPException(404, f"No session {session_id}.")
+        if bff:
+            reconcile_owned(conn, views.session_owner(conn, session_id), session_id)
         return views.history(conn, agent, session_id)
 
     def prepare_message(session_id: str, body: SendBody, conn: Db) -> Run:
@@ -307,7 +383,10 @@ def create_app(agent: Any = None, store: BaseStore | None = None, *, verifier: A
     # ------------------------------------------------------------------------------------------- cases
 
     @app.get("/api/cases/{case_id}")
-    def get_case(case_id: str, conn: Db) -> dict[str, Any]:
+    def get_case(case_id: str, conn: Db, request: Request) -> dict[str, Any]:
+        if bff:
+            p = request.state.principal
+            return views.remote_case_detail(conn, case_id, p.actor_id, p.role.lower())
         detail = views.case_detail(conn, case_id)
         if detail is None:
             raise HTTPException(404, f"No case {case_id}.")
@@ -315,10 +394,14 @@ def create_app(agent: Any = None, store: BaseStore | None = None, *, verifier: A
 
     @app.get("/api/instructors/{instructor_id}/pending")
     def list_pending(instructor_id: str, conn: Db) -> list[dict[str, Any]]:
+        if bff:
+            raise HTTPException(503, "FE instructor-list interface is not available yet; open an owned case by ID")
         return views.pending_for(conn, instructor_id)
 
     @app.get("/api/instructors/{instructor_id}/decided")
     def list_decided(instructor_id: str, conn: Db) -> list[dict[str, Any]]:
+        if bff:
+            raise HTTPException(503, "FE instructor-list interface is not available yet")
         return views.decided_by(conn, instructor_id)
 
     def prepare_decision(case_id: str, body: DecisionBody, conn: Db) -> Run:
@@ -326,6 +409,23 @@ def create_app(agent: Any = None, store: BaseStore | None = None, *, verifier: A
         if case is None:
             raise HTTPException(404, f"No case {case_id}.")
         stop = runs.start(case_id)
+        if bff:
+            try:
+                mcp_call("fe", "decide_case", {"case_id":case_id, "decision":body.decision.upper(), "reason":body.reason},
+                         actor=body.instructor_id, role="instructor")
+                # FE owns atomic approval/outbox. Do not resume the student's
+                # graph under instructor credentials or execute locally.
+                run = Run(None, None, stop)
+                identifier = secrets.token_hex(16)
+                run.events.put({"type":"run.started", "run_id":identifier, "session_id":case_id})
+                run.events.put({"type":"message.completed", "message":{"message_id":identifier,
+                    "role":"assistant", "text":"Decision recorded. Approved enrollment is handled by the durable worker.",
+                    "created_at":views.now()}})
+                run.events.put({"type":"run.finished", "status":"answered"})
+                run.events.put(None)
+                return run
+            finally:
+                runs.finish(case_id)
         try:
             translator = RunTranslator(store, session_id=case_id, student_id=case["student_id"],
                                        actor_id=body.instructor_id)

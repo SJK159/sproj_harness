@@ -20,6 +20,7 @@ from langchain_core.messages import AIMessage
 from langgraph.types import Command
 
 from harness.mcp.client import call as mcp_call, enabled as mcp_enabled
+from harness.mcp.authenticated import MCPUnavailable
 from harness.approvals import decide
 from harness.cases import get_case
 from harness.context import HarnessContext
@@ -65,6 +66,8 @@ def prepare_confirmation(case_id: str, student_id: str, args: dict[str, Any]) ->
                                 "section": str(args.get("section", ""))}, actor=student_id)
             else:
                 case = open_case(conn, case_id, student_id, str(args.get("course_id", "")), str(args.get("section", "")))
+        except MCPUnavailable:
+            raise  # Keep the persisted confirmation pause available for retry.
         except (WorkflowRefused, ZambeelError) as refused:
             return None, {"type": "reject", "message": f"Request not submitted: {refused}"}
     if case["state"] != "AWAITING_CONFIRMATION":  # answered before this resume was retried

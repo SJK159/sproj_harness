@@ -76,6 +76,14 @@ export function ChatView() {
     void load(activeSessionId);
   }, [activeSessionId, load]);
 
+  // A service worker can finish while this browser has no active agent stream.
+  const savedState = session?.case?.state;
+  useEffect(() => {
+    if (app.identity && activeSessionId && savedState && isFinal(savedState) && !running) {
+      void load(activeSessionId);
+    }
+  }, [app.identity, activeSessionId, savedState, running, load]);
+
   useEffect(() => {
     const el = scrollRef.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;

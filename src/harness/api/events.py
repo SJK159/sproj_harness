@@ -48,6 +48,14 @@ class RunTranslator:
 
     def __init__(self, store: BaseStore, *, session_id: str, student_id: str, actor_id: str):
         self.store, self.session_id, self.student_id, self.actor_id = store, session_id, student_id, actor_id
+        from harness.mcp.authenticated import current_transport
+        transport = current_transport.get()
+        if transport is not None:
+            if transport.person.actor_id != student_id:
+                raise PermissionError("Agent session does not belong to the verified student")
+            self.context = HarnessContext.from_verified_student(transport.person)
+        else:
+            self.context = HarnessContext(student_id=student_id)
         self.run_id = uuid.uuid4().hex
         self.started = time.monotonic()
         self.steps: list[dict[str, Any]] = []        # top-level steps; sub-agent steps are their children
@@ -225,7 +233,7 @@ def run_events(agent: Any, translator: RunTranslator, payload: Any, *, unattende
     """Stream one run until it answers, pauses for a person, or fails. Yields RunEvent dicts."""
     t = translator
     config = {"configurable": {"thread_id": t.session_id}}
-    context = HarnessContext(student_id=t.student_id)  # the session owner, never a request field (invariant 5)
+    context = t.context  # verified mapping in BFF mode; no bearer/session credentials in graph context
     yield {"type": "run.started", "run_id": t.run_id, "session_id": t.session_id}
     if isinstance(payload, Command):
         yield from t.reopen(agent)
@@ -268,6 +276,13 @@ def run_events(agent: Any, translator: RunTranslator, payload: Any, *, unattende
                 return
             payload = Command(resume={"decisions": decisions})
     except Exception as exc:  # the stream must end with run.finished; details go to the server log only
+        from harness.mcp.authenticated import current_transport
+        if current_transport.get() is not None:
+            from harness.mcp.authenticated import ReauthenticationRequired
+            log.error("Authenticated run failed on %s (%s)", t.session_id, type(exc).__name__)
+            yield {"type":"run.finished", "status":"error", "reauthenticate":isinstance(exc,ReauthenticationRequired),
+                   "error":"The operation could not complete. Reload, retry, or sign in again; saved case state is retained."}
+            return
         log.exception("run failed on %s", t.session_id)
         yield {"type": "run.finished", "status": "error", "error": f"{type(exc).__name__}: {exc}"[:300]}
         return

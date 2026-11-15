@@ -161,7 +161,8 @@ Pending cross-lane acceptance:
 2. FE application-token validation and execute_approved_case response contract.
 3. Safe concurrent execution and transient-error handling inside FE/Zambeel.
 4. App registrations, granted service permissions and secure deployment config.
-5. Reconciliation of the paused graph, case notes/memory and UI after a worker
-   finishes independently (the worker intentionally does not drive an LLM with
-   a service identity masquerading as a student).
+5. Terminal graph/memory/UI reconciliation is now implemented in Ammar's BFF
+   increment (`reconciliation.py` and API session/history reads), tested against
+   real local workflow/checkpoints. Live shared-DB/server validation remains.
+   The worker never drives an LLM under a fake student identity.
 6. Explicit renewed-approval handling after terminal expiry, plus live tests.

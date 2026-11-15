@@ -1,5 +1,30 @@
 # LUMS Force-Enrollment Assistant — frontend
 
+## Backend-managed Entra mode (2026-11-16)
+
+The BFF API provides sign-in, callback, logout and status. With VITE_USE_MOCK=false,
+the UI checks `/auth/status`, shows Microsoft sign-in when needed and uses only
+the server-mapped identity. It sends cookies/CSRF headers, never Entra tokens.
+No demo identity switcher/reset is shown in BFF mode. HTTP 401 or a stream's
+reauthentication signal clears the mounted user UI. Backend-origin configuration
+must exactly match the registered callback and frontend origin; use localhost.
+
+```powershell
+# Backend, from repository root; ignored private config must be provisioned.
+$env:HARNESS_ENV_FILE = '.env.bff.local'
+uv run python -m harness.api
+# Another terminal, from frontend:
+$env:VITE_USE_MOCK = 'false'
+$env:VITE_API_BASE_URL = 'http://localhost:8000'
+npm run dev -- --host localhost
+```
+
+Read `../docs/ammar-agent-integration.md` for configuration and exact limitations.
+Notifications and instructor lists are unavailable until FE supplies their
+contracts. Real model configuration and authenticated MCP services are needed
+for agent requests. Sign-in itself does not fabricate or require a model.
+The original demo workflow below remains available in explicit demo/mock mode.
+
 A chat web app where a student talks to an AI agent that checks force-enrollment (FE) rules, submits requests, waits for instructor approval and enrolls the student. Next to the chat it shows case histories, the state of every case, the student's long-term memory, and the agent's thought process live.
 
 Senior-project demo. **All data is synthetic. FE rules are team placeholders (v0.1), not official LUMS policy.**
