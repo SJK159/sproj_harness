@@ -1,6 +1,7 @@
 # Ammar: agent integration engineering record
 
-Status: API authentication/authorization foundation; full integration pending.
+Status: API authentication/authorization foundation plus durable worker components;
+full integration pending. Worker protocol/runbook: [worker-handoff.md](worker-handoff.md).
 Branch: `ammar`. Working date: 2026-11-16.
 Baseline: `8e234b8ed627923c7715be856077d865fbe3bc8b`.
 
@@ -15,9 +16,10 @@ Ammar owns agent/orchestrator integration. Nausherwan owns MCP server internals
 and currently Entra administration while Saad is away. Hussain owns Sakai;
 Yahya owns infrastructure. This branch does not configure their external systems.
 
-This increment protects the FastAPI boundary with verified credentials and
-ownership checks. It does not implement browser sign-in, OBO, authenticated MCP
-transport, service-execution permissions, or a durable background worker.
+The first increment protects the FastAPI boundary with verified credentials and
+ownership checks. The second adds the execution outbox, lease/recovery primitives,
+MSAL application-token provider and service-only MCP worker client. It does not
+implement browser sign-in or server-side MCP permissions/endpoints.
 
 ## 2. Initial and current architecture
 
@@ -90,8 +92,12 @@ already-created enrollment by case ID.
 
 No MCP contracts are changed here. Local headers are still demo claims; they
 must be replaced by Nausherwan's validation and the agreed client token provider.
-The target proposed flow is browser PKCE -> protected harness API -> OBO tokens
-for each MCP audience. It requires registrations/consent and is not implemented.
+The updated agreed flow is FastAPI-managed authorization-code sign-in, an opaque
+browser session cookie and protected server-side user token cache. FastAPI acquires
+resource-specific user tokens directly through that cache; OBO is not needed for
+this browser flow. Browser session/CSRF integration remains pending. The initial
+bearer-verifier tests remain useful, but browser-facing API authentication must
+be adapted to the verified server session rather than requiring browser tokens.
 
 Dashboard views currently read shared SQLite directly. They must be adapted to
 agreed MCP operations before claiming integrated service isolation. The current
@@ -135,11 +141,12 @@ and are consumed once. Enrollment uses case ID as its idempotency key. Execution
 rechecks academic rules and reconciles an already-completed write. This branch
 does not alter those safeguards or reset any database.
 
-Durable state does not itself schedule work after a restart. The target unattended
-path needs a durable recoverable job plus a service-only FE operation accepting
-case ID. Student/section must be resolved from saved case state. A student token
-or instructor token cannot simply be relabelled for this purpose. Expired approval
-must require renewed approval while retaining the case.
+Durable state does not itself schedule work after a restart. `jobs.py` and
+`worker.py` now implement leased jobs and recovery with a service-only FE operation
+accepting case ID. Nausher must wire atomic enqueue into the approval transaction
+and implement that endpoint. Student/section are resolved by FE from saved state.
+No student/instructor token is relabelled. Expired approval requires review while
+retaining the case. See the worker handoff for exact transaction and retry behavior.
 
 ## 7. Code changes
 
@@ -152,6 +159,8 @@ must require renewed approval while retaining the case.
 | `.env.example` | Non-secret API-boundary settings and limitations | Review/configuration tests |
 | `tests/test_api_auth.py` | Invalid credentials, roles, identity conflicts and route guards | Pytest |
 | This document | Actual contributions, operation and pending integration | Code cross-check |
+| `jobs.py`, `worker.py` | Durable outbox, fenced leases, recoverable service execution client | Worker failure/concurrency tests |
+| `tests/test_worker.py`, `docs/worker-handoff.md` | Worker contract tests and exact FE integration handoff | Focused pytest/review |
 
 Global authorization was chosen to cover all existing routes, including reads,
 stop, notification writes and resume. Protecting only message endpoints would
@@ -200,10 +209,12 @@ idempotency, sub-agent isolation and disconnect behavior.
   API requests must match the server mapping before existing context is built.
 - Is HITL enough? No. Approval ownership, signature, expiry, single-use consumption
   and academic rechecks remain deterministic workflow conditions.
-- What if a token expires? The next request fails verification. Renewal and
-  downstream OBO are pending; no demo fallback occurs.
-- What if the process crashes? Checkpoints/cases survive, but automatic scheduling
-  is not complete. Service execution and durable recovery remain required.
+- What if a token expires? The next bearer request fails verification. Browser
+  session/user-cache renewal remains pending. Worker application tokens are
+  acquired independently through MSAL; no demo fallback occurs.
+- What if the process crashes? Checkpoints/cases survive; worker leases expire and
+  approved/in-flight jobs are rediscovered. Full automatic completion still needs
+  FE's atomic enqueue and service endpoint, plus graph/UI reconciliation.
 - Why no async persistence rewrite? Current worker-based MCP integration already
   works; no evidence requires replacing the workflow engine for this increment.
 - What protects memory? Verified route ownership plus existing context-selected
@@ -251,5 +262,7 @@ Partial branch increment only; no claim of full WP7 completion. See Git history
 for this increment's SHA (a commit cannot contain its own final SHA).
 Completed: optional API credential verification and ownership boundary, preserved
 demo mode, isolated security tests. Pending: real registration/mapping provisioning,
-browser login, OBO/MCP tokens, dashboard MCP coverage, service execution contract,
-durable worker/restart scheduling, Sakai integration and live acceptance.
+backend-managed browser sessions/user MCP tokens, dashboard MCP coverage, live FE
+service endpoint/atomic enqueue wiring, graph reconciliation, Sakai integration
+and live acceptance. Worker implementation and tests are now available; live
+unattended completion is not yet verified.
