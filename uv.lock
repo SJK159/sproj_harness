@@ -1810,6 +1810,7 @@ dependencies = [
     { name = "langgraph" },
     { name = "langgraph-checkpoint-sqlite" },
     { name = "mcp" },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "python-dotenv" },
     { name = "uvicorn" },
 ]
@@ -1828,6 +1829,7 @@ requires-dist = [
     { name = "langgraph" },
     { name = "langgraph-checkpoint-sqlite" },
     { name = "mcp", specifier = ">=1.26,<2" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10,<3" },
     { name = "python-dotenv" },
     { name = "uvicorn", specifier = ">=0.54.0" },
 ]

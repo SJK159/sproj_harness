@@ -1,6 +1,7 @@
 """Run the API on this machine only:  uv run python -m harness.api [--port 8000]
 
-There is no authentication (the frontend sends a claimed student or instructor id), so it binds to 127.0.0.1.
+Demo mode trusts claimed IDs. Optional Entra API validation is a foundation, not a complete deployment.
+Both modes bind to loopback; see docs/ammar-agent-integration.md for current limitations.
 """
 
 import argparse

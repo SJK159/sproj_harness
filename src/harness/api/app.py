@@ -3,9 +3,9 @@
 A third client of the same agent, next to harness.cli (student) and scripts/approve.py (instructor), built from
 the same functions in harness.clients. Agent runs are streamed as Server-Sent Events (harness.api.events).
 
-Identity is a demo: the frontend sends the acting student or instructor id with each call and nothing checks
-it, exactly like `--student S1` on the CLI. The server binds to 127.0.0.1 only (harness.api.__main__). Inside a
-run the agent's student comes from the session's owner, never from a request field (invariant 5).
+HARNESS_AUTH_MODE=demo retains the loopback demo. In entra mode the global dependency verifies the
+harness API access token and authorizes every route before its handler runs. Claimed identity fields must
+match that verified mapping. Browser login and authenticated downstream MCP acquisition are pending.
 
 Streaming endpoints check everything in a dependency first, so a refusal is a plain JSON error (403/404/409)
 before any event is sent. The dependency then starts the run in a worker thread; the SSE response only relays
@@ -34,6 +34,7 @@ from langgraph.types import Command
 from pydantic import BaseModel
 
 from harness.api import views
+from harness.api.auth import ApiAuthorization, configured_verifier
 from harness.api.events import RunTranslator, run_events
 from harness.approvals import NotCourseOwner
 from harness.cases import InvalidTransition
@@ -116,13 +117,14 @@ class Run:
         self.events: queue.SimpleQueue[dict[str, Any] | None] = queue.SimpleQueue()
 
 
-def create_app(agent: Any = None, store: BaseStore | None = None) -> FastAPI:
+def create_app(agent: Any = None, store: BaseStore | None = None, *, verifier: Any = None) -> FastAPI:
+    from harness.config import load_env
+    load_env()
+    authorization = ApiAuthorization(verifier if verifier is not None else configured_verifier())
     if agent is None:
         from harness.agent import build_agent
-        from harness.config import load_env
         from harness.persistence import open_checkpointer, open_store
 
-        load_env()
         store = store or open_store()
         agent = build_agent(checkpointer=open_checkpointer(), store=store)
     if store is None:
@@ -130,17 +132,24 @@ def create_app(agent: Any = None, store: BaseStore | None = None) -> FastAPI:
 
         store = open_store()
 
-    app = FastAPI(title="LUMS force-enrollment harness API")
+    app = FastAPI(title="LUMS force-enrollment harness API", dependencies=[Depends(authorization)])
     # Any port on this machine (Vite moves to 5174 when 5173 is taken); HARNESS_CORS_ORIGINS adds exact origins.
     extra = [o.strip() for o in os.environ.get("HARNESS_CORS_ORIGINS", "").split(",") if o.strip()]
     app.add_middleware(CORSMiddleware, allow_origins=extra, allow_origin_regex=LOCAL_ORIGIN,
-                       allow_methods=["GET", "POST"], allow_headers=["Content-Type", "Accept"])
+                       allow_methods=["GET", "POST"], allow_headers=["Content-Type", "Accept", "Authorization"])
     runs = Runs()
     app.state.runs = runs  # tests wait on it (idle)
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException) -> JSONResponse:
-        return JSONResponse({"error": str(exc.detail)}, status_code=exc.status_code)
+        return JSONResponse({"error": str(exc.detail)}, status_code=exc.status_code, headers=exc.headers)
+
+    @app.get("/api/me")
+    def current_user(request: Request):
+        person = getattr(request.state, "principal", None)
+        if person is None:
+            return {"mode": "demo"}
+        return {"mode": "entra", "actor_id": person.actor_id, "role": person.role}
 
     @app.exception_handler(RequestValidationError)
     async def bad_request(request: Request, exc: RequestValidationError) -> JSONResponse:
