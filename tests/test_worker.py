@@ -17,6 +17,11 @@ def approved(db, secret):
     workflow.submit(db, "C-worker", "S1")
     decide(db, "C-worker", "I1", "APPROVE")
     jobs.initialize(db)
+    # Simulate a pre-outbox approved case. These isolated scheduling tests insert
+    # their own jobs at a synthetic clock of 100; production approval now enqueues
+    # atomically at wall-clock time (covered by the MCP integration tests).
+    with db:
+        db.execute("DELETE FROM execution_jobs WHERE case_id = 'C-worker'")
     return db
 
 

@@ -128,6 +128,9 @@ def record_decision(
                         {"decision": decision, "reason": str(refusal)})
         raise refusal
 
+    from harness import jobs
+    # Install additive schema before opening the approval/outbox transaction.
+    jobs.initialize(conn)
     token = nonce = expires_at = None
     if decision == "APPROVE":
         token, nonce, expires_at = mint_token(case_id, instructor_id, now=now)
@@ -140,6 +143,8 @@ def record_decision(
         )
         transition(conn, case_id, "APPROVED" if decision == "APPROVE" else "REJECTED", instructor_id, decision,
                    {"approval_id": cur.lastrowid, "reason": reason})
+        if decision == "APPROVE":
+            jobs.enqueue_execution(conn, case_id, now=now.timestamp())
     return token
 
 

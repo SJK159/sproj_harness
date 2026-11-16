@@ -11,7 +11,9 @@ from harness.approvals import decide
 from harness.cases import get_case
 from harness.mock_zambeel import connect
 from harness.mcp.client import RemoteAcademic
-from harness.mcp.security import caller
+from harness.mcp.security import caller, require_service
+from harness.mcp.entra import mode
+from harness.mcp.execution import case_lock, service_result
 from harness.notifications import notify
 from harness import workflow
 
@@ -25,7 +27,8 @@ def domain_result(fn):
             # sync workflow in a worker; its MCP client owns a separate loop.
             return await anyio.to_thread.run_sync(partial(fn, *args, **kwargs))
         except Exception as exc:
-            return {"error": str(exc), "error_type": type(exc).__name__}
+            return {"error": str(exc) if mode() == "demo" else "Operation refused or unavailable",
+                    "error_type": type(exc).__name__}
     return wrapped
 
 
@@ -65,7 +68,7 @@ def create_server():
     def submit_case(case_id: str, course_id: str, section: str) -> dict:
         """Route a confirmed case to its instructor after a fresh eligibility check."""
         person = caller("student")
-        with closing(connect()) as conn, using_academic(RemoteAcademic(person.actor)):
+        with case_lock(case_id), closing(connect()) as conn, using_academic(RemoteAcademic(person.actor)):
             if own(conn, case_id)["offering_id"] != f"{course_id}-{section}":
                 raise PermissionError("Case does not match requested section.")
             return workflow.submit(conn, case_id, person.actor)
@@ -75,15 +78,24 @@ def create_server():
     def execute_enrollment(case_id: str) -> dict:
         """Verify and consume the existing signed approval, recheck rules, then enroll exactly once."""
         person = caller("student")
-        with closing(connect()) as conn, using_academic(RemoteAcademic(person.actor)):
+        # Keep legacy owner checks while serializing with the service executor.
+        with case_lock(case_id), closing(connect()) as conn, using_academic(RemoteAcademic(person.actor)):
             return workflow.execute(conn, case_id, person.actor)
+
+    @server.tool()
+    async def execute_approved_case(case_id: str) -> dict:
+        """Worker only: execute the saved approved case; no identity overrides."""
+        if mode() != "entra":
+            raise PermissionError("Service execution requires Entra application authentication")
+        require_service("Cases.ExecuteApproved")
+        return await anyio.to_thread.run_sync(service_result, case_id)
 
     @server.tool()
     @domain_result
     def decide_case(case_id: str, decision: str, reason: str | None = None) -> dict:
         """Instructor client only: record an owner decision. The signed token never leaves this service."""
         person = caller("instructor")
-        with closing(connect()) as conn:
+        with case_lock(case_id), closing(connect()) as conn:
             case = get_case(conn, case_id)
             with using_academic(RemoteAcademic(case["student_id"])):
                 decide(conn, case_id, person.actor, decision.upper(), reason)
@@ -133,7 +145,11 @@ def create_server():
         if not isinstance(ref, PromptReference) or ref.name != "force_enroll":
             return None
         person = caller("student")
-        data = await acall("zambeel", "list_offerings", actor=person.actor)
+        if mode() == "entra":
+            from harness.mcp.service import acall as academic_call
+            data = await academic_call("academic_catalogue", {})
+        else:
+            data = await acall("zambeel", "list_offerings", actor=person.actor)
         rows = data["sections"]
         selected = context.arguments if context and context.arguments else {}
         if argument.name == "school":

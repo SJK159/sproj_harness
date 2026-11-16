@@ -1,5 +1,10 @@
 # Approved-case worker: FE handoff
 
+Integration update (nausher, 2026-11-17): the MCP endpoint, token validation,
+atomic approval hook and FE recovery below are implemented on nausher.
+See [entra-mcp.md](entra-mcp.md) for the current runbook and remaining portal/live
+acceptance prerequisites. The original handoff below records the baseline contract.
+
 Implementation date: 2026-11-16. Branch: `ammar`.
 This implements Ammar's side of the agreed recovery contract. Nausher's service
 endpoint, permission checks and atomic approval integration are still required.

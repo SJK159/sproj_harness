@@ -23,6 +23,8 @@ class RemoteError(ZambeelError):
 def enabled():
     from harness.mcp.authenticated import current_transport
     from harness.mcp.security import principal
+    if principal.get() is not None:
+        return False  # Server-side wrappers must not recurse through the BFF transport.
     if current_transport.get() is not None or os.environ.get("HARNESS_AUTH_MODE") == "bff":
         return True
     return principal.get() is None and os.environ.get("HARNESS_USE_MCP", "").lower() in ("1", "true")
@@ -73,6 +75,16 @@ class RemoteAcademic:
         self.actor = actor
 
     def _call(self, name, args=None, actor=None):
+        from harness.mcp.entra import mode
+        if mode() == "entra":
+            from harness.mcp.service import call as service_call
+            args = dict(args or {})
+            if name == "get_my_profile":
+                name = "get_student_record"
+                args["subject_id"] = actor or self.actor
+            elif name == "eligibility_record":
+                args["subject_id"] = actor or self.actor
+            return service_call(name, args)
         return call("zambeel", name, args, actor=actor or self.actor, service=True)
 
     def get_section(self, offering_id):

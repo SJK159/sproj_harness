@@ -127,9 +127,10 @@ class ClientCredentials:
 
 
 class ServiceExecutor:
-    def __init__(self, url, token_provider):
+    def __init__(self, url, token_provider, *, allow_local=False):
         parsed = urlsplit(url)
-        if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
+        local = allow_local and parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1", "::1")
+        if (not (parsed.scheme == "https" or local) or not parsed.hostname or parsed.username or parsed.password
                 or parsed.query or parsed.fragment):
             raise ValueError("Worker FE endpoint must be HTTPS without embedded credentials/query/fragment")
         self.url, self.tokens = url, token_provider
@@ -162,7 +163,8 @@ def main():
     args = parser.parse_args()
     executor = ServiceExecutor(os.environ.get("HARNESS_WORKER_FE_URL", ""), ClientCredentials(
         os.environ.get("HARNESS_ENTRA_TENANT_ID"), os.environ.get("HARNESS_WORKER_CLIENT_ID"),
-        os.environ.get("HARNESS_WORKER_CLIENT_SECRET"), os.environ.get("HARNESS_WORKER_FE_SCOPE", "")))
+        os.environ.get("HARNESS_WORKER_CLIENT_SECRET"), os.environ.get("HARNESS_WORKER_FE_SCOPE", "")),
+        allow_local=os.environ.get("HARNESS_MCP_ALLOW_LOOPBACK") == "true")
     with closing(connect()) as conn:
         jobs.initialize(conn)
         worker = Worker(conn, executor)

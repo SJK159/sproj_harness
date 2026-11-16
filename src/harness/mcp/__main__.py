@@ -1,10 +1,35 @@
 """Run a loopback MCP server: python -m harness.mcp zambeel|fe [--port N]."""
 import argparse
+from contextlib import closing
+import anyio
 
 import uvicorn
 
 from harness.config import load_env
 from harness.mcp.security import DemoIdentityMiddleware, Principal, principal, service_secret
+
+
+class RecoveryLifespan:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "lifespan":
+            return await self.app(scope, receive, send)
+        from harness.mcp.recovery import recover
+        async def loop():
+            while True:
+                await anyio.to_thread.run_sync(recover)
+                await anyio.sleep(5)
+        async with anyio.create_task_group() as group:
+            async def wrapped_send(message):
+                if message["type"] == "lifespan.startup.complete":
+                    group.start_soon(loop)
+                await send(message)
+            try:
+                await self.app(scope, receive, wrapped_send)
+            finally:
+                group.cancel_scope.cancel()
 
 
 def main():
@@ -16,7 +41,12 @@ def main():
     parser.add_argument("--actor", help="Required demo actor for stdio (not a tool argument)")
     parser.add_argument("--role", choices=["student", "instructor"], default="student")
     args = parser.parse_args()
-    service_secret()  # fail closed; do not invent a default credential
+    from harness.mcp.entra import mode, configured_verifier, BearerMiddleware
+    auth_mode = mode()
+    if auth_mode == "demo":
+        service_secret()  # local mode only
+    elif args.transport != "streamable-http":
+        parser.error("Entra requires HTTP bearer authentication; demo stdio actors are forbidden")
     if args.server == "fe":
         from harness.mcp.fe import create_server
     else:
@@ -28,7 +58,18 @@ def main():
         principal.set(Principal(args.actor, args.role))
         server.run(transport="stdio")
     else:
-        app = DemoIdentityMiddleware(server.streamable_http_app())
+        if args.server == "fe":
+            from harness.mock_zambeel import connect
+            from harness import jobs
+            with closing(connect()) as conn:
+                jobs.initialize(conn)
+        app = server.streamable_http_app()
+        if auth_mode == "entra":
+            app = BearerMiddleware(app, configured_verifier(args.server))
+            if args.server == "fe":
+                app = RecoveryLifespan(app)
+        else:
+            app = DemoIdentityMiddleware(app)
         uvicorn.run(app, host="127.0.0.1", port=args.port or (8101 if args.server == "fe" else 8102))
 
 

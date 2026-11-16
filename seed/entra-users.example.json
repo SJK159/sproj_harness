@@ -4,5 +4,23 @@
     "object_id": "38ab6ffb-e8b5-424a-8cdd-c88e594cbba8",
     "actor_id": "S1",
     "role": "Student"
+  },
+  {
+    "tenant_id": "305b003b-4966-4335-ae28-1c377e906143",
+    "object_id": "0b72871b-7ceb-48d4-a121-c915557646e6",
+    "actor_id": "S2",
+    "role": "Student"
+  },
+  {
+    "tenant_id": "305b003b-4966-4335-ae28-1c377e906143",
+    "object_id": "3c2490bf-3444-491e-ac0d-322ed7f12520",
+    "actor_id": "I1",
+    "role": "Instructor"
+  },
+  {
+    "tenant_id": "305b003b-4966-4335-ae28-1c377e906143",
+    "object_id": "49d392b9-fdd0-45a3-b29c-b1f336404eec",
+    "actor_id": "I2",
+    "role": "Instructor"
   }
 ]

@@ -15,6 +15,10 @@ class Principal:
     actor: str
     role: str
     service: bool = False
+    tenant_id: str = ""
+    object_id: str = ""
+    client_id: str = ""
+    permissions: frozenset[str] = frozenset()
 
 
 principal = ContextVar("mcp_demo_principal", default=None)
@@ -29,8 +33,10 @@ def caller(role=None):
     return value
 
 
-def require_service():
-    if not caller().service:
+def require_service(permission="Academic.Read"):
+    from harness.mcp.entra import mode
+    person = caller()
+    if not person.service or (mode() == "entra" and permission not in person.permissions):
         raise PermissionError("Only the FE service may call this operation.")
 
 

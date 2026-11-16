@@ -403,3 +403,6 @@ Validation: `uv sync --locked --offline` succeeded. `python -m pytest -q -m 'not
 - `tests/test_api_disconnect.py`: a run survives a real disconnect, reaches the instructor pause and completes once; a stranded case gives a 409 on the decision, then continues and completes. It failed before the fix ("the run stopped when the browser disconnected") and passes after.
 - 240 offline tests pass.
 - Live (Azure gpt-5-mini, MCP mode): S3 → CS330-S1, confirm, disconnect after one SSE line. 34 s later the case was paused for the instructor, and I5's approval completed it. `check_integrity.py` is clean.
+
+## 2026-11-17: MCP resource authentication and durable FE handoff
+Use Ammar's BFF and worker interfaces on nausher. MCPs independently validate resource-specific Entra v2 tokens; FE uses its own restricted application credential for academic calls. Add worker-only execute_approved_case, atomic approval/outbox enqueue, FE submission recovery and single-VM process-safe case locks. Preserve approval expiry, ownership, eligibility, audit and idempotency. Demo remains explicit. See docs/entra-mcp.md for configuration and acceptance limits.
