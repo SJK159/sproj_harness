@@ -110,3 +110,14 @@ Done when: offline tests cover every stream and guard; the S1 happy path (ask, c
 
 As built (decisions.md, M9): `src/harness/api/`, 22 offline tests, live run on a scratch database. Two live-only bugs fixed (cross-thread SQLite use; frontend `useRun` under React StrictMode) and token streaming dropped for a Databricks incompatibility.
 
+## M10. Authenticated force enrollment (19 November scope)
+
+The user's current target is force enrollment only. Preserve M0-M9; do not add
+other proposed automations or require Sakai for this workflow. Ammar's BFF,
+authenticated MCP client, durable worker and terminal reconciliation are integrated
+with Nausher's `e7e3ad6` resource validators, FE service execution and atomic outbox.
+S1/S2/I1/I2 are mapped. Local full-stack coverage includes approval/offline/restart,
+instructor rejection, ineligibility and cancellation with real HTTP MCPs and
+synthetic token issuance/model replies. Live Entra/model/service provisioning
+and hosted acceptance remain distinct. See `force-enrollment-acceptance.md`.
+

@@ -10,9 +10,17 @@ LUMS policy. This branch is not a live integration with the university's systems
 
 This README is the entry point for **Ammar's Agent/Orchestrator branch**. It
 explains the repository, additions relative to `main`, execution, and what remains.
-The comparison baseline is `main` at `8e234b8`; implementation commits are
-`e49e065`, `a4329db`, and `13eeaac` (16 November 2026). Later upstream changes
-should be reviewed before assuming this comparison still describes `main`.
+The comparison baseline is `main` at `8e234b8`. Ammar's implementation commits
+are `e49e065`, `a4329db`, and `13eeaac` (16 November 2026). On 19 November,
+`ammar` fast-forwarded to Nausher's published `e7e3ad6`, integrating his MCP
+authentication, service execution and atomic handoff work without changing main.
+
+**Active scope (19 November 2026): force enrollment only.** Complete and verify
+the assigned Agent/Orchestrator work for this workflow. Sakai dashboards and
+other proposed automations are outside this increment. The shared account
+register now confirms S1, S2, I1 and I2; passwords are never part of the repo.
+See [force-enrollment acceptance](docs/force-enrollment-acceptance.md) for the
+tested path, exact test boundaries and remaining live prerequisites.
 
 ## Contents
 
@@ -83,7 +91,7 @@ the chosen browser sign-in flow; the later BFF agreement supersedes browser OBO.
 - CSRF token plus exact Origin checks for writes; explicit credentialed CORS,
   no-store responses, secure hosted cookies and explicit loopback HTTP development.
 - Callback access-log suppression in the API launcher and no-referrer responses.
-- Confirmed S1 mapping in the non-secret example mapping file. No email-prefix inference.
+- Confirmed S1/S2/I1/I2 mappings in the non-secret example mapping file. No email-prefix inference.
 - Lazy agent initialization: sign-in can start before model configuration; agent
   use without model settings returns an operational error rather than a fake model.
 - Private configuration selection through `HARNESS_ENV_FILE`.
@@ -115,8 +123,12 @@ the chosen browser sign-in flow; the later BFF agreement supersedes browser OBO.
   blocked jobs. Existing approval expiry is never silently renewed or bypassed.
 - A submitted-case recovery hook for FE's trusted routing context.
 
-**Worker primitives/client are implemented. FE's service endpoint, application
-permissions and atomic approval/enqueue wiring are still integration dependencies.**
+**Worker and FE integration code are implemented.** Nausher's integrated changes
+provide the service-only endpoint, independent MCP JWT/scope/role checks,
+atomic approval/enqueue, periodic confirmed-submission recovery, FE application
+calls to Zambeel, and process-safe case locking. Actual Entra application-role
+grants and private service credentials remain live provisioning prerequisites.
+See [the receiving-side runbook](docs/entra-mcp.md).
 
 ### 5. Frontend and dashboard changes
 
@@ -156,10 +168,13 @@ case storage and the single-VM deployment described in the handoff.
 | Local agent demo | Real agent against the mock workflow | Model configuration and local approval secret |
 | Local demo MCP | Existing FE/Zambeel demo transport | Local secrets; demo identity headers, loopback only |
 | BFF login/client | Implemented login, session and authenticated-client code | Registered Entra app, private credential, mapping and consent; authenticated MCP servers needed for downstream calls |
-| Service worker | Implemented queue/retry/service client | FE service endpoint, granted worker permission and shared case/outbox DB; not supplied by the current demo servers |
+| Entra MCP servers | Implemented FE/Zambeel resource validators and FE service operation | Explicit server Entra mode, agreed v2 claims/roles and private service provisioning |
+| Service worker | Implemented queue/retry/service client and integrated FE endpoint | Granted worker permission, separate worker/FE credentials and shared persistent case/outbox DB |
 
 Only offline/mocked integration and Microsoft discovery/redirect have been
-verified here. **A redirect is not a completed live sign-in or full enrollment.**
+verified here. Local HTTP integration uses the production MCP validators and
+workflow with synthetic signed tokens and a scripted model. **A redirect is not
+a completed live sign-in or full enrollment.**
 
 ## Installation and execution
 
@@ -251,11 +266,13 @@ Start each service in its own terminal with demo configuration:
 
 ```powershell
 $env:HARNESS_AUTH_MODE = 'demo'
+$env:HARNESS_MCP_AUTH_MODE = 'demo'
 uv run python -m harness.mcp zambeel
 ```
 
 ```powershell
 $env:HARNESS_AUTH_MODE = 'demo'
+$env:HARNESS_MCP_AUTH_MODE = 'demo'
 uv run python -m harness.mcp fe
 ```
 
@@ -268,8 +285,9 @@ uv run python -m harness.api
 ```
 
 Default MCP endpoints are `http://127.0.0.1:8101/mcp` (FE) and port 8102 (Zambeel).
-These servers use spoofable demo identity headers and must remain local. They
-**do not accept Entra bearer tokens merely because the client supports them**.
+In explicit demo mode these servers use spoofable demo identity headers and must
+remain local. Entra mode is separately selected with `HARNESS_MCP_AUTH_MODE=entra`;
+see [the MCP runbook](docs/entra-mcp.md) for separate FE/Zambeel configuration.
 
 ### 6. Run backend-managed Entra login
 
@@ -304,9 +322,10 @@ URLs/origins/callbacks must match their registrations. Provision a persistent,
 protected session key in hosted mode. Never delete the key/cache casually: the
 key is needed to decrypt sessions across restarts, although cases persist separately.
 
-The sample maps the confirmed project S1 tenant/Object ID to internal S1. Only
-that external test account currently exists. Add further accounts through the
-approved mapping/role process, not browser identity fields or email prefixes.
+The sample maps the confirmed tenant/Object IDs for S1, S2, I1 and I2 to their
+internal actors. Use the same operator mapping on BFF and MCP services. Accounts
+being provisioned does not itself prove live token-role grants. Add further users
+through the approved mapping/role process, never browser fields or email prefixes.
 
 Backend:
 
@@ -328,14 +347,27 @@ Open localhost:5173 and choose **Sign in with Microsoft**. Use localhost
 consistently with the saved callback. The API exposes status at
 `http://localhost:8000/auth/status`. Model settings are not needed just to start
 login, but are required for agent requests. Provision them in the selected private
-file or environment. Current demo MCPs cannot complete authenticated downstream calls.
+file or environment. Run the MCPs in separately configured Entra mode for
+authenticated downstream calls; their default demo mode is not interchangeable.
 
-### 7. Run the durable service worker, after FE is ready
+### 7. Run authenticated MCPs and the durable service worker
 
-First confirm FE implements `execute_approved_case`, grants `Cases.ExecuteApproved`
-to the explicitly authorized worker app, and atomically inserts its approval/job.
-The worker must share the FE case/outbox database under the agreed deployment.
-Do not point it at the demo FE server or reuse a user token as a service credential.
+The FE operation and atomic approval/job insertion are now integrated. First
+provision separate FE and Zambeel environments using [entra-mcp.md](docs/entra-mcp.md),
+then launch each MCP in its own terminal with its own selected private file.
+Grant `Cases.ExecuteApproved` to the explicitly allowed worker app and grant the
+FE app Zambeel's `Academic.Read` and `Enrollment.ExecuteApproved` permissions.
+The worker must share FE's case/outbox database under the single-VM deployment.
+Do not reuse a user token or the harness secret as a service credential.
+
+```powershell
+# Zambeel terminal (private server config includes HARNESS_MCP_AUTH_MODE=entra):
+$env:HARNESS_ENV_FILE = '.env.zambeel.local'
+uv run --frozen python -m harness.mcp zambeel
+# FE terminal (separate private config, including FE application credential):
+$env:HARNESS_ENV_FILE = '.env.fe.local'
+uv run --frozen python -m harness.mcp fe
+```
 
 Provision a separate ignored `.env.worker.local` containing:
 
@@ -347,6 +379,10 @@ HARNESS_WORKER_CLIENT_SECRET=<provision privately>
 HARNESS_WORKER_FE_SCOPE=api://04ce3e46-2e44-4c4c-949f-09ce52e2a17b/.default
 HARNESS_WORKER_FE_URL=https://<authenticated FE hostname>/mcp
 ```
+
+For explicitly local HTTP testing only, use `http://127.0.0.1:8101/mcp` and
+`HARNESS_MCP_ALLOW_LOOPBACK=true` on the worker as well as the API/FE. Hosted
+services retain HTTPS. Preserve the existing approval secret and database.
 
 ```powershell
 $env:HARNESS_ENV_FILE = '.env.worker.local'
@@ -365,7 +401,11 @@ response contract, blocked-job retry and submission-recovery responsibilities.
 
 ```powershell
 uv sync --frozen
+$env:HARNESS_AUTH_MODE = 'demo'
+$env:HARNESS_MCP_AUTH_MODE = 'demo'
+$env:HARNESS_USE_MCP = 'false'
 uv run pytest -q -m "not live"
+uv run pytest -q tests/test_force_enrollment_stack.py tests/test_mcp_entra.py
 uv run pytest -q tests/test_api_auth.py tests/test_bff.py tests/test_authenticated_mcp.py tests/test_worker.py tests/test_reconciliation.py
 # Run only after a simulator exists; this checks that particular database.
 uv run python scripts/check_integrity.py --db data/harness.db
@@ -374,17 +414,20 @@ npm run typecheck
 npm run build
 ```
 
-Recorded implementation verification (16 November 2026):
+The 16 November implementation passed 315 offline tests. Updated integration
+verification is recorded in [force-enrollment acceptance](docs/force-enrollment-acceptance.md).
+The following live boundaries still apply:
 
 | Check | Result / interpretation |
 |---|---|
-| Full offline suite | **315 passed, 11 live tests deselected** |
+| Full offline suite (19 November) | **354 passed, 11 live tests deselected**; 315 was the pre-integration baseline |
 | Frontend typecheck/build | Passed |
 | Browser auth smoke | Passed with explicitly fake auth/API responses |
 | Real Microsoft discovery/redirect | BFF status 200 and Microsoft redirect 302; not a completed sign-in |
 | Real Entra callback/token exchange | Not completed/verified |
-| Live authenticated FE/Zambeel and worker enrollment | Pending external server/permission integration |
-| Live model / Sakai / hosted acceptance | Not performed |
+| Local authenticated HTTP FE/Zambeel + worker + BFF/graph recovery | Passed using synthetic token issuance/model; actual validators and workflow |
+| Live authenticated FE/Zambeel and worker enrollment | Pending real service provisioning and live Entra acceptance |
+| Live model / hosted acceptance | Not performed in this increment |
 
 Tests exercise synthetic signatures, scope/role/identity refusal, callback replay,
 CSRF, cache restart/concurrency, pre-stream/mid-stream expiry, tool isolation,
@@ -413,19 +456,21 @@ items, with ownership and acceptance criteria rather than an unqualified TODO.
 
 | Remaining item | Owner/dependency | Done when |
 |---|---|---|
-| Authenticated FE/Zambeel server validation | Nausherwan: issuer/JWKS, configured token version/audience, scopes, roles and identity mappings | Valid resource tokens work; wrong/expired/missing tokens fail before tools run |
-| Service-only FE operation | Nausherwan: `execute_approved_case(case_id)`, `Cases.ExecuteApproved`, worker app allowlist | Approved case completes with app auth; delegated callers cannot use it |
-| Atomic approval/job handoff | Coordinated FE change by Nausherwan using `jobs.enqueue_execution` | Approval and unique job commit/roll back together; no lost handoff on crash |
-| Confirmed SUBMITTED recovery wiring | FE owner calls the supplied trusted recovery hook | A saved confirmation routes after restart without asking the student again |
-| FE -> Zambeel service authorization/concurrency | Nausherwan: restricted FE app permission and saved-case/consumed-approval checks | Duplicate/concurrent/lost-response execution creates one authorized enrollment |
-| Worker app/deployment configuration | Nausherwan + infrastructure owner | Permission/credential/URL and shared persistent DB are securely provisioned; worker survives restart |
-| Instructor and additional test users | Nausherwan: account Object IDs, roles and mappings | Actual instructor ownership and cross-user refusals pass live tests |
+| Live Entra service configuration | Nausherwan: v2 API tokens, worker app/credential, FE credential, application-role grants and explicit app allowlists | Real resource tokens pass the already-implemented validators and service operation |
+| Persistent worker deployment | Nausherwan + infrastructure owner | Separate private configurations/URLs and shared persistent case/outbox DB; worker is supervised and survives restart |
+| Live four-account acceptance | S1/S2/I1/I2 are now provisioned and mapped; test actual role grants | Real instructor ownership and cross-user refusals pass with issued Entra tokens |
 | Model configuration | Private provider settings from the team | Model-backed agent runs work; no fake model substituted |
 | Notification and instructor-list contracts | Nausherwan supplies agreed MCP operations; Ammar connects client/UI once supplied | Authenticated dashboard works through FE rather than personal SQL bypasses |
 | Expired approval review/reapproval | Coordinated FE/workflow policy | Case is retained and explicitly reviewed after 24-hour approval expiry; no bypass/automatic renewal |
-| Sakai integration | Hussain's verified per-user REST/SSO data + Nausherwan's Sakai MCP contract, then Ammar's client/UI work | Authenticated student sees their real project Sakai sites/due work, with isolation tests |
 | Hosted deployment | Yahya: HTTPS, exact origins/callback, proxy streaming/log settings, restricted persistent files | Cookie/login/streams and worker recovery pass on the target host |
 | Full live acceptance | Team, with Ammar verifying agent flow | Real S1 login -> eligibility -> confirmation -> real instructor approval -> student offline/backend restart -> one enrollment, complete audit and memory |
+
+The MCP endpoint, JWT validation, atomic outbox hook, FE SUBMITTED recovery and
+FE-to-Zambeel execution/concurrency code are integrated from Nausher's `e7e3ad6`
+and covered locally. They are not outstanding implementation requests to him.
+Notification/instructor-list support remains an interface gap: instructors can
+currently open an owned case by ID. Sakai and other automations are outside the
+active scope and do not block force-enrollment validation.
 
 The current browser flow uses a query callback for registered loopback development.
 MSAL recommends form_post; any hosted switch needs coordinated callback/login-cookie
@@ -437,8 +482,8 @@ to pretend the current mock is a live university system.
 ## Files added or changed relative to main
 
 The following inventory covers the implementation diff against `8e234b8`. Links
-are the authoritative place to inspect each addition; this README is an additional
-documentation-only change on `ammar`.
+are the authoritative place to inspect each addition; this README is maintained
+on `ammar`. Integrated MCP work is credited below.
 
 | Files | Branch contribution |
 |---|---|
@@ -455,7 +500,7 @@ documentation-only change on `ammar`.
 | [frontend App](frontend/src/App.tsx), [frontend auth client](frontend/src/api/auth.ts) | Sign-in gate, stable mapped identity and stale-status protection |
 | [httpApi.ts](frontend/src/api/httpApi.ts), [types.ts](frontend/src/api/types.ts) | Cookie/CSRF requests and stream reauthentication signal |
 | [AppContext.tsx](frontend/src/state/AppContext.tsx), [Sidebar.tsx](frontend/src/components/layout/Sidebar.tsx), [ChatView.tsx](frontend/src/components/chat/ChatView.tsx) | Authenticated identity controls, unavailable-feature labels, serial polling and recovered outcome display |
-| [S1 mapping example](seed/entra-users.example.json) | Non-secret confirmed project identity mapping |
+| [Four-account mapping example](seed/entra-users.example.json) | Confirmed non-secret S1/S2/I1/I2 identities; no passwords |
 | [.env.example](.env.example), [.gitignore](.gitignore) | Configuration surface and ignored private env files; no supplied secret is committed |
 | [pyproject.toml](pyproject.toml), [uv.lock](uv.lock) | Explicit locked MSAL/PyJWT crypto/cryptography dependencies |
 | [test_api_auth.py](tests/test_api_auth.py), [test_bff.py](tests/test_bff.py) | New credential, ownership, login/cache/CSRF/stream tests |
@@ -463,12 +508,22 @@ documentation-only change on `ammar`.
 | [browser-auth.cjs](tests/browser-auth.cjs) | New optional Playwright smoke test against the built UI |
 | [Engineering guide](docs/ammar-agent-integration.md), [worker handoff](docs/worker-handoff.md), [infrastructure crosswalk](docs/infrastructure-crosswalk.md) | New explanation, integration contract and milestone status |
 | [CLAUDE.md](CLAUDE.md), [build plan](docs/build-plan.md), [decision log](docs/decisions.md), [frontend README](frontend/README.md) | Updated scope, decisions and execution guidance |
+| [mcp/entra.py](src/harness/mcp/entra.py), [mcp/service.py](src/harness/mcp/service.py) | Nausher: receiving-side JWT validation and FE application transport to Zambeel |
+| [mcp/execution.py](src/harness/mcp/execution.py), [mcp/recovery.py](src/harness/mcp/recovery.py) | Nausher: service result contract, process-safe case locks and periodic FE recovery |
+| [mcp/fe.py](src/harness/mcp/fe.py), [mcp/zambeel.py](src/harness/mcp/zambeel.py), [mcp/__main__.py](src/harness/mcp/__main__.py), [approvals.py](src/harness/approvals.py) | Nausher: restricted service endpoints, server auth/lifespan and atomic approval/outbox integration; coordinated client/worker compatibility changes |
+| [test_mcp_entra.py](tests/test_mcp_entra.py), [Entra MCP runbook](docs/entra-mcp.md) | Nausher: signed-token HTTP authorization, recovery/concurrency tests and server provisioning instructions |
+| [test_force_enrollment_stack.py](tests/test_force_enrollment_stack.py), [acceptance report](docs/force-enrollment-acceptance.md) | Ammar: BFF/agent/subagent through real authenticated HTTP MCPs, offline worker/restart, rejection, ineligibility and cancellation tests; active scope and live prerequisites |
 
-MCP server internals and the core approval/workflow implementation are not silently
-rewritten by this branch. Their pending integration points are identified above.
+Existing deterministic approval/workflow rules are preserved. The receiving-side
+MCP and approval handoff changes come from Nausher's published branch; this branch
+integrates and tests them rather than duplicating that work.
 
 ## Further documentation
 
+- [Force-enrollment acceptance](docs/force-enrollment-acceptance.md): active scope,
+  full-stack test coverage and remaining live Entra/model prerequisites.
+- [Entra MCP runbook](docs/entra-mcp.md): receiving-side configuration, exact roles
+  and separate FE/worker service credentials.
 - [Ammar engineering guide](docs/ammar-agent-integration.md): before/after design,
   exact mechanisms, supervisor Q&A, contributions and limitations.
 - [Worker handoff](docs/worker-handoff.md): transaction hook, service contract,

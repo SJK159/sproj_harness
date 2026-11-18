@@ -7,13 +7,19 @@ This repo is the orchestrator: one deep agent (LangChain `deepagents`, running o
 
 ## Current target
 
-2026-11-16 integration: Ammar's `ammar` branch adds backend-managed Entra login,
+2026-11-19 scope: **force enrollment is the only active automation**. Other planned
+automations and Sakai dashboards are outside this increment. Ammar's `ammar` branch
+adds backend-managed Entra login,
 authenticated MCP transport, verified identity, durable worker components and
 terminal graph/memory reconciliation. See `docs/ammar-agent-integration.md` and
 `docs/infrastructure-crosswalk.md` for implemented versus pending status. The
 flow below remains the local demo. BFF decisions go to FE; the service worker
 completes approved cases without student presence. Nausherwan owns MCP server
-authorization/permissions; those external changes are not claimed complete here.
+authorization/permissions. His published `e7e3ad6` is integrated: receiving-side
+JWT validation, worker-only execution, atomic approval/outbox and FE recovery are
+implemented and locally tested. Actual service grants/credentials and live
+Entra/model acceptance remain pending. S1/S2/I1/I2 are mapped; no account passwords
+belong in git. See `docs/force-enrollment-acceptance.md` for current evidence.
 
 Force enrollment, end to end:
 
@@ -35,7 +41,8 @@ Deep agent concepts this build must exercise: planning (`write_todos`, opt-in in
 Still outside this branch: RAG/vector store, real PeopleSoft integration, unrelated
 domain agents/workflows, TA-ship, advising, Outlook and infrastructure administration.
 The November assignment brings agent-side authentication/frontend integration into
-scope. Sakai awaits the teammate contract; no synthetic results are presented as live.
+scope for force enrollment. Sakai and other automations are outside the current
+increment; no synthetic results are presented as live.
 
 ## Non-negotiable invariants
 

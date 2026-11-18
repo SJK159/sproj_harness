@@ -1,6 +1,6 @@
 # Ammar: agent, identity and MCP integration
 
-Working/submission date: **2026-11-16**. Branch: **ammar**.
+Updated **2026-11-19**. Initial implementation: 2026-11-16. Branch: **ammar**.
 Baseline: `8e234b8ed627923c7715be856077d865fbe3bc8b` on main.
 Status: agent-side implementation tested locally; live integrated acceptance pending.
 Earlier branch contributions: `e49e065` (API boundary), `a4329db` (worker).
@@ -24,7 +24,10 @@ Real PeopleSoft integration remains outside this branch.
 This branch adds an optional bearer-verifier foundation, backend-managed browser
 login/session/cache, authenticated tool transport, frontend sign-in and recovery
 integration, a durable service worker, and tests. It does not claim Nausher's
-unpublished endpoints or permissions are implemented. See
+portal grants are implemented. Nausher's published `e7e3ad6` is now integrated,
+including the receiving-side MCP validators, worker endpoint and atomic outbox.
+The user's current scope is **force enrollment only**; Sakai and other proposed
+automations are outside this increment. See
 [infrastructure-crosswalk.md](infrastructure-crosswalk.md) for milestone status.
 
 ## 2. Initial architecture versus current architecture
@@ -49,9 +52,9 @@ flowchart LR
   Z --> M[Mock academic DB; PeopleSoft later]
 ```
 
-Sakai is a future third authenticated MCP resource once its contract exists.
-No placeholder live Sakai results are displayed. Hosted MCP authorization and
-the worker endpoint remain Nausher's integration boundary. Initial deployment
+Sakai is outside the active force-enrollment scope. No placeholder live Sakai
+results are displayed. MCP authorization and the worker endpoint are integrated
+from Nausher; actual service provisioning remains a live prerequisite. Deployment
 assumes the agreed single VM/shared FE SQLite case database; separate database
 hosting would need additional contracts rather than silently copying records.
 
@@ -72,8 +75,10 @@ IDs, JWT strings supplied by the browser and model output are not identity sourc
 
 Confirmed synthetic mapping: tenant `305b003b-4966-4335-ae28-1c377e906143`, object
 `38ab6ffb-e8b5-424a-8cdd-c88e594cbba8` -> `S1`, Student. The sample mapping is
-`seed/entra-users.example.json`. Only S1 is currently provisioned externally.
-No instructor/Sakai user mapping is fabricated. BFF role authorization comes from
+`seed/entra-users.example.json`. The 19 November shared register additionally
+confirms S2, I1 and I2, all present in that mapping. Their Sakai ID cells are empty;
+Sakai is not required for this workflow. No passwords are copied into the repo.
+BFF role authorization comes from
 the operator mapping; MCP APIs independently enforce their resource-specific
 scopes/app roles. A harness session does not grant an Instructor role on FE.
 
@@ -156,7 +161,7 @@ therefore return explicit unavailable responses rather than bypassing FE using
 personal SQL reads. Authenticated notification UI is labelled unavailable; an
 instructor can open an owned case by ID. Session/checkpoint history and the shared
 case state used for graph coordination remain application-local storage. Full
-service/database separation is not claimed. Sakai is similarly awaiting its API.
+service/database separation is not claimed. Other automations are outside scope.
 
 ## 5. LangGraph, sub-agents and HITL
 
@@ -204,9 +209,10 @@ ownership, HMAC signatures, single-use consume, expiry and execution-time academ
 rechecks are unchanged. Enrollment is keyed by case ID. A retry reconciles an
 already-created enrollment before claiming another write is needed.
 
-`jobs.py` adds a unique job per case with operational metadata only. Nausher must
-call `enqueue_execution` inside the approval transaction, after its state change
-but before commit. The helper requires an active transaction and never commits it.
+`jobs.py` adds a unique job per case with operational metadata only. The integrated
+`approvals.record_decision` calls `enqueue_execution` inside the approval transaction,
+after its state change but before commit. The helper requires an active transaction
+and never commits it.
 `worker-handoff.md` gives the exact hook; an outer `with conn` around the existing
 `decide` call would NOT suffice because `record_decision` already commits internally.
 
@@ -254,6 +260,16 @@ session effects stable and guarded stale asynchronous status responses after log
 
 ## 8. End-to-end execution trace
 
+**19 November integration:** `test_force_enrollment_stack.py` combines the BFF,
+real graph and eligibility subagent, actual HTTP FE/Zambeel services with production
+JWT validators, deterministic workflow, durable worker and fresh API/checkpointer
+connections. Four cases cover approve/offline/restart, reject, ineligibility despite
+a false model verdict, and cancellation. Synthetic Microsoft issuance and scripted
+model replies keep this reproducible without credentials. See
+[the acceptance report](force-enrollment-acceptance.md) for current results.
+
+The following paragraph records the earlier 16 November tests:
+
 The tested synthetic flow uses a fake MSAL provider, real API/graph/persistence and
 explicitly fake MCP transport. Browser login/callback maps S1, cookie+CSRF admit
 session creation, and `RunTranslator` passes verified non-secret context. A profile
@@ -272,9 +288,13 @@ but no interactive callback/token exchange or full live enrollment was completed
 
 ## 9. Testing and correctness
 
+Current 19 November regression: **354 passed, 11 live tests deselected**, 181.04
+seconds; frontend typecheck/build passed. See the acceptance report for the four
+new full-stack cases and what remains simulated. The figures below are history.
+
 Baseline: 240 passed, 11 live deselected. First API increment: 253 full-suite passes;
 worker increment: 286 full-suite passes plus final 32 focused worker passes.
-This BFF increment's final post-review run: **315 passed, 11 live deselected**,
+The 16 November BFF increment's final post-review run: **315 passed, 11 live deselected**,
 140.17 seconds (`uv run pytest -q -m "not live"`). Frozen sync, frontend typecheck
 and build, and the headless browser auth smoke passed. Real configuration returned
 200 BFF status and a 302 redirect to Microsoft's authority. No interactive
@@ -308,7 +328,8 @@ were provided. Equivalent tool-permission tests use the installed graph offline.
 - **What if user tokens expire?** MSAL attempts renewal from its encrypted cache;
   interaction-required asks for sign-in again. The saved case is not cancelled.
 - **What if the student goes offline?** The agreed worker uses app credentials and
-  saved approval; this needs FE's pending endpoint/outbox wiring to operate live.
+  saved approval; endpoint/outbox integration is implemented. Actual app credentials
+  and Entra grants are needed for live operation, independently of student tokens.
 - **What if MCP goes down?** Retry/reload preserves case ID/checkpoint. Worker
   transport errors back off; unknown/auth failures are operational review items.
 - **Why isn't HITL authorization?** A human pause alone cannot enforce instructor
@@ -317,8 +338,10 @@ were provided. Equivalent tool-permission tests use the installed graph offline.
   leases persist. Keep the encryption key. Worker recovery does not rely on cookies.
 - **Why no write tools for sub-agents?** Tool allowlists enforce separation even
   if instructions/model output are wrong. The worker endpoint is never model-visible.
-- **What remains external?** MCP token validation/service permissions, atomic FE
-  hook, instructor provisioning, missing dashboard contracts, Sakai and deployment.
+- **What remains external?** Actual v2 tokens/service grants and credentials,
+  model configuration and hosted/live acceptance. Four test users are provisioned.
+  Notification/instructor-list contracts remain a UI gap; owned cases open by ID.
+  Sakai and other automations are outside this increment.
 
 ## 11. Running and demonstrating
 
@@ -349,10 +372,11 @@ and refuses an existing file. Never use --reset on records that must be preserve
 
 Existing DEMO services run in separate terminals with demo configuration:
 `uv run python -m harness.mcp fe` and `uv run python -m harness.mcp zambeel`.
-They do not suddenly accept Entra tokens. Authenticated mode sends bearer tokens
-only and fails if pointed at those old demo servers. Use Nausher's authenticated
-versions for live integration. Worker configuration/commands and the exact approval
-hook are in [worker-handoff.md](worker-handoff.md).
+Select `HARNESS_MCP_AUTH_MODE=demo` explicitly for those demo servers. For the
+integrated Entra servers, use separate private environments configured according
+to [entra-mcp.md](entra-mcp.md), with `HARNESS_MCP_AUTH_MODE=entra`. Authenticated
+clients never fall back to demo identity. Worker commands and the implemented
+approval hook are in [worker-handoff.md](worker-handoff.md).
 
 Optional browser smoke: build with VITE_USE_MOCK=false, make Playwright available
 to Node, then `node tests/browser-auth.cjs` (PLAYWRIGHT_CHANNEL=msedge is supported).
@@ -369,9 +393,10 @@ database/key, synthetic simulator and browser screenshots are ignored. The suppl
 harness secret is private backend configuration; expiry reported as 2027-05-15.
 
 Implemented agent-side code is locally verified. Full live completion remains
-dependent on Nausher's authenticated endpoints, atomic approval/job integration,
-worker identity/permissions and FE-side submission recovery; instructor account
-and role/mapping; model credentials; and the later Sakai contract/deployment.
+dependent on private worker/FE credentials and actual service grants, v2 API
+tokens, model settings and real callback/role/deployment acceptance. Nausher's
+authenticated endpoints, atomic handoff and FE submission recovery are integrated;
+four student/instructor identities are mapped. Sakai is outside the active scope.
 Notifications/instructor lists are explicitly unavailable in BFF mode until an
 agreed server interface exists. API and FE currently share the simulator database
 for case/checkpoint coordination. Those limitations must be stated in the demo.

@@ -1,14 +1,17 @@
 # Approved-case worker: FE handoff
 
-Integration update (nausher, 2026-11-17): the MCP endpoint, token validation,
-atomic approval hook and FE recovery below are implemented on nausher.
+Integration update (2026-11-19): Nausher's `e7e3ad6` is integrated into `ammar`.
+The MCP endpoint, token validation, atomic approval hook and FE recovery below
+are implemented and covered by local authenticated HTTP integration tests.
 See [entra-mcp.md](entra-mcp.md) for the current runbook and remaining portal/live
 acceptance prerequisites. The original handoff below records the baseline contract.
 
 Implementation date: 2026-11-16. Branch: `ammar`.
-This implements Ammar's side of the agreed recovery contract. Nausher's service
-endpoint, permission checks and atomic approval integration are still required.
-The executable refuses demo HTTP transport and does not call the language model.
+The original Ammar-side implementation was followed by Nausher's service
+endpoint, permission checks and atomic approval integration. Actual Entra service
+grants/credentials and live acceptance remain pending. The executable requires
+app authentication, defaults to HTTPS, supports explicit local loopback HTTP,
+and does not call the language model.
 
 ## Owners and transaction boundary
 
@@ -16,9 +19,9 @@ The executable refuses demo HTTP transport and does not call the language model.
 - Nausher: FE `execute_approved_case(case_id)`, application authentication,
   `Cases.ExecuteApproved` + explicit worker app allowlist, FE -> Zambeel
   `Enrollment.ExecuteApproved` authorization and concurrency/idempotency gates.
-- Shared approval boundary: Nausher must insert the enqueue call below INSIDE
-  the existing approval transaction. No shared workflow/approval/server file
-  has been modified by this increment.
+- Shared approval boundary: the integrated `approvals.record_decision` now inserts
+  the enqueue call below INSIDE the approval transaction. The snippets explain
+  the implemented contract; they are not additional code to insert again.
 
 At FE startup, before serving decisions, on the case database connection:
 
@@ -54,11 +57,10 @@ confirm again. It must run in FE's authorized academic-service context, e.g. a
 callback that resolves the student from the saved case and calls `workflow.submit`.
 Do not expose a general worker impersonation header or store delegated tokens.
 
-This hook is tested against the existing local workflow. It is not automatically
-run by the external worker: the agreement does not yet define an authenticated
-service operation for routing submissions, and that worker's permission only
-authorizes approved-case execution. FE should wire the hook at startup/periodically
-with its own service context. Failed routing returns `needs_reconciliation`.
+The integrated FE lifespan runs this hook periodically in FE's own academic
+service context, including after a restart. It is not run by the external worker:
+the worker's permission only authorizes approved-case execution. Failed routing
+returns `needs_reconciliation`; saved confirmation is not discarded.
 
 ## Lease and retry protocol
 
@@ -144,9 +146,10 @@ uv run python -m harness.worker
 `--once` scans for missing execution jobs then attempts at most one ready job.
 Continuous operation scans between attempts and sleeps when idle. Stop with
 Ctrl+C or the process supervisor; an unacknowledged job is reclaimed after expiry.
-Do not start against the current demo server; it has no service-only operation.
+Use the integrated FE server in Entra mode with the explicit worker allowlist;
+the local demo authentication mode is not an app-token acceptance test.
 
-## Verification and pending integration
+## Original worker verification (16 November)
 
 32 focused offline tests passed. They exercise transaction rollback,
 unique jobs, missing-job recovery, separate-connection competing claims, lease
@@ -161,13 +164,17 @@ Full offline regression also passed: 286 tests, 11 live tests deselected, in
 complete focused worker suite subsequently passed all 32 tests. `uv sync --frozen`
 and the worker CLI help check also passed. Frontend files were not changed.
 
-Pending cross-lane acceptance:
-1. Atomic approval/outbox insertion by FE and FE-side SUBMITTED recovery wiring.
-2. FE application-token validation and execute_approved_case response contract.
-3. Safe concurrent execution and transient-error handling inside FE/Zambeel.
-4. App registrations, granted service permissions and secure deployment config.
-5. Terminal graph/memory/UI reconciliation is now implemented in Ammar's BFF
-   increment (`reconciliation.py` and API session/history reads), tested against
-   real local workflow/checkpoints. Live shared-DB/server validation remains.
-   The worker never drives an LLM under a fake student identity.
-6. Explicit renewed-approval handling after terminal expiry, plus live tests.
+## Current acceptance boundary (19 November)
+
+Atomic handoff, FE service authorization, SUBMITTED recovery, concurrency and
+transient-failure handling are now implemented and locally tested in
+`test_mcp_entra.py`. `test_force_enrollment_stack.py` also tests BFF/graph through
+real HTTP services, instructor approval, student session removal, abandoned-lease
+recovery and API/checkpointer restart with one enrollment and one memory note.
+Only token issuance/sign-in and model responses are simulated in that stack test.
+
+Remaining: actual service application grants/credentials, supervised shared-DB
+deployment and real Entra/model acceptance. An expired unconsumed approval stops
+for instructor review; a renewed-approval workflow is not implemented. The case
+is retained, and neither workers nor model calls silently renew approval.
+See [force-enrollment-acceptance.md](force-enrollment-acceptance.md).

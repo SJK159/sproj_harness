@@ -406,3 +406,19 @@ Validation: `uv sync --locked --offline` succeeded. `python -m pytest -q -m 'not
 
 ## 2026-11-17: MCP resource authentication and durable FE handoff
 Use Ammar's BFF and worker interfaces on nausher. MCPs independently validate resource-specific Entra v2 tokens; FE uses its own restricted application credential for academic calls. Add worker-only execute_approved_case, atomic approval/outbox enqueue, FE submission recovery and single-VM process-safe case locks. Preserve approval expiry, ownership, eligibility, audit and idempotency. Demo remains explicit. See docs/entra-mcp.md for configuration and acceptance limits.
+
+## 2026-11-19: force-enrollment-only integration and acceptance
+
+User narrowed active automation work to force enrollment. Preserve the assigned
+Agent/Orchestrator identity, HITL, subagent isolation, persistence and documentation
+work; do not implement Sakai dashboards or other automations as prerequisites.
+The shared register confirms S1/S2/I1/I2; use verified tenant/Object-ID mappings,
+never copy its passwords into source or documentation.
+
+Fast-forward ammar from 74bf873 to Nausher's published e7e3ad6, which already builds
+on our BFF/worker implementation. Integrate his receiving-side code rather than
+reimplement it. Main remains untouched. Add a full-stack regression through BFF,
+graph/subagent and real HTTP FE/Zambeel validators/workflow/worker, including
+session removal and fresh API/checkpointer recovery. Only Microsoft issuance and
+model replies are synthetic. Passing this does not establish real Entra or model
+acceptance; service credentials/grants and live verification remain explicit.
