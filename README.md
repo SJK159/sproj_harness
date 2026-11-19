@@ -520,6 +520,12 @@ integrates and tests them rather than duplicating that work.
 
 ## Further documentation
 
+- [Repository defence guide (8-page PDF)](output/pdf/SProj_Repo_Defence_Guide.pdf):
+  beginner-friendly architecture, code map, identity, workflow, recovery and instructor Q&A.
+- [Visual meeting map (3-page landscape PDF)](output/pdf/SProj_Visual_Meeting_Map.pdf):
+  presentation flowcharts for architecture, human decisions and offline recovery.
+  Regenerate both with `scripts/make_meeting_docs.py` in a Python environment
+  containing ReportLab and the documented Windows fonts; no runtime secrets are used.
 - [Force-enrollment acceptance](docs/force-enrollment-acceptance.md): active scope,
   full-stack test coverage and remaining live Entra/model prerequisites.
 - [Entra MCP runbook](docs/entra-mcp.md): receiving-side configuration, exact roles

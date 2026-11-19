@@ -228,8 +228,9 @@ and enrollment-idempotency enforcement.
 `worker.py:ServiceExecutor` calls only `execute_approved_case(case_id)`, never a
 model tool. MSAL client credentials acquire an FE application token independently
 of user presence. FE must require `Cases.ExecuteApproved` plus the explicit worker
-app identity; FE -> Zambeel uses its separate restricted permission. Those server
-endpoints/permissions are not yet published. The 24-hour approval expiry remains
+app identity; FE -> Zambeel uses its separate restricted permissions. Receiving-side
+code is now integrated from Nausher; actual portal grants remain unverified.
+The 24-hour approval expiry remains
 enforced: expired unconsumed approval stops for review, while Entra user-token
 expiry does not invalidate a confirmed case. Recovery hooks exist for SUBMITTED
 cases but require FE's trusted academic context; the external execution worker
